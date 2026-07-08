@@ -392,6 +392,8 @@ const ADAPTERS = {
       const endUtc = localDayStartToUtc(addDays(to, 1), tz, rollover);
       const items = {}; // key: itemName -> { name, category, qty, netSales }
       let cursor = null, pages = 0;
+      let txnCount = 0;        // completed orders (all, for transaction count)
+      let totalNetSales = 0;   // total sales Food + non-Food (for average spend)
       do {
         const body_q = {
           location_ids: loc.ids,
@@ -412,16 +414,18 @@ const ADAPTERS = {
         if (!res.ok) { const e = new Error('square item search HTTP ' + res.status); e.status = res.status; throw e; }
         const body = await res.json();
         for (const order of (body.orders || [])) {
+          txnCount++; /* every completed order is one transaction */
           for (const li of (order.line_items || [])) {
             const varId = li.catalog_object_id || null;
             const category = (varId && map.varToCat[varId]) || 'Uncategorised';
-            if ((category || '').trim().toLowerCase() === this._FOOD_CATEGORY.toLowerCase()) continue; // skip kitchen
-            const name = li.name || (varId && map.varToItem[varId]) || '(custom item)';
-            const qty = parseFloat(li.quantity || '0') || 0;
             const gross = (li.gross_sales_money && li.gross_sales_money.amount) || 0;
             const disc = (li.total_discount_money && li.total_discount_money.amount) || 0;
             const tax = (li.total_tax_money && li.total_tax_money.amount) || 0;
             const netCents = gross - disc - tax; // approx ex-GST net
+            totalNetSales += netCents / 100; /* ALL items, for average spend */
+            if ((category || '').trim().toLowerCase() === this._FOOD_CATEGORY.toLowerCase()) continue; // FOH list skips kitchen
+            const name = li.name || (varId && map.varToItem[varId]) || '(custom item)';
+            const qty = parseFloat(li.quantity || '0') || 0;
             const key = name;
             if (!items[key]) items[key] = { name, category, qty: 0, netSales: 0 };
             items[key].qty += qty;
@@ -435,13 +439,15 @@ const ADAPTERS = {
         .map((it) => ({ name: it.name, category: it.category, qty: Math.round(it.qty * 100) / 100, sales: Math.round(it.netSales * 100) / 100 }))
         .sort((a, b) => b.sales - a.sales);
       const fohNetSales = Math.round(list.reduce((s, it) => s + it.sales, 0) * 100) / 100;
-      return { items: list, fohNetSales };
+      totalNetSales = Math.round(totalNetSales * 100) / 100;
+      const avgSpend = txnCount > 0 ? Math.round((totalNetSales / txnCount) * 100) / 100 : null;
+      return { items: list, fohNetSales, txnCount, totalNetSales, avgSpend };
     },
 
-    /* FOH POS pull: itemised non-food list + FOH net sales total. */
+    /* FOH POS pull: itemised non-food list + FOH sales + transactions + avg spend. */
     async fetchFoh(env, h, q) {
-      const { items, fohNetSales } = await this._itemSales(env, q.from, q.to, q.tz, q.rollover || 0);
-      return { items, fohNetSales };
+      const r = await this._itemSales(env, q.from, q.to, q.tz, q.rollover || 0);
+      return { items: r.items, fohNetSales: r.fohNetSales, txnCount: r.txnCount, avgSpend: r.avgSpend };
     },
 
     async fetchMonthly(env, h, q) {
@@ -1319,6 +1325,8 @@ async function apiFoh(env, url) {
     return {
       sales, cogs, wages,
       cogsPct: pct(cogs), wagesPct: pct(wages),
+      txnCount: (pos.txnCount != null) ? pos.txnCount : null,
+      avgSpend: (pos.avgSpend != null) ? pos.avgSpend : null,
       items: Array.isArray(pos.items) ? pos.items : null
     };
   };

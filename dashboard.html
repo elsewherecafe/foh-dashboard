@@ -97,10 +97,16 @@ tr:last-child td{border-bottom:none}
 
   <div class="range-h" id="rangeH"></div>
 
-  <div class="grid">
+  <div class="grid" style="margin-bottom:1.25rem">
+    <div class="card" id="cardTxn"></div>
+    <div class="card" id="cardAvg"></div>
     <div class="card" id="cardSales"></div>
+  </div>
+
+  <div class="grid">
     <div class="card" id="cardCogs"></div>
     <div class="card" id="cardWages"></div>
+    <div class="card" id="cardSpacer" style="background:transparent;border:none"></div>
   </div>
 
   <div class="tablewrap">
@@ -157,6 +163,24 @@ function cmpLine(label,cur,prev){
 }
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
 
+function renderTxn(cur,prev,yoy){
+  var el=document.getElementById('cardTxn');
+  if(!cur||cur.txnCount===null||cur.txnCount===undefined){ el.innerHTML='<div class="badge sq">From Square</div><div class="lab">Number of Transactions</div><div class="na">Not configured</div>'; return; }
+  el.innerHTML='<div class="badge sq">From Square</div><div class="lab">Number of Transactions</div>'
+    +'<div class="val">'+fmtQty(cur.txnCount)+'</div>'
+    +cmpLine('vs prev period',cur.txnCount,prev&&prev.txnCount)
+    +cmpLine('vs same last year',cur.txnCount,yoy&&yoy.txnCount)
+    +'<div class="drives"><b>Completed sales</b> across the venue (voids and refunds excluded). Busier or quieter?</div>';
+}
+function renderAvg(cur,prev,yoy){
+  var el=document.getElementById('cardAvg');
+  if(!cur||cur.avgSpend===null||cur.avgSpend===undefined){ el.innerHTML='<div class="badge sq">From Square</div><div class="lab">Average Customer Spend</div><div class="na">Not configured</div>'; return; }
+  el.innerHTML='<div class="badge sq">From Square &middot; indicative</div><div class="lab">Average Customer Spend</div>'
+    +'<div class="val">'+fmtMoney2(cur.avgSpend)+'</div>'
+    +cmpLine('vs prev period',cur.avgSpend,prev&&prev.avgSpend)
+    +cmpLine('vs same last year',cur.avgSpend,yoy&&yoy.avgSpend)
+    +'<div class="drives"><b>Spend per visit</b> (total sales &divide; transactions). Are upsells and prompts working?</div>';
+}
 function renderSales(cur,prev,yoy){
   var el=document.getElementById('cardSales');
   if(!cur||cur.sales===null||cur.sales===undefined){ el.innerHTML='<div class="badge sq">From Square</div><div class="lab">FOH Sales</div><div class="na">Not configured</div><div class="sub">Square isn\u2019t returning item sales for this period yet.</div>'; return; }
@@ -207,7 +231,7 @@ function load(force){
     return res.json();
   }).then(function(d){
     if(!d) return;
-    renderSales(d.cur,d.prev,d.yoy); renderCogs(d.cur,d.prev,d.yoy); renderWages(d.cur,d.prev,d.yoy); renderItems(d.cur);
+    renderTxn(d.cur,d.prev,d.yoy); renderAvg(d.cur,d.prev,d.yoy); renderSales(d.cur,d.prev,d.yoy); renderCogs(d.cur,d.prev,d.yoy); renderWages(d.cur,d.prev,d.yoy); renderItems(d.cur);
     var t=d.generatedAt?new Date(d.generatedAt):new Date();
     document.getElementById('freshText').textContent='Updated '+t.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit'})+' \u00b7 updates when you open or refresh';
     var warn=[]; if(d.sources){ if(d.sources.accounting&&d.sources.accounting.error) warn.push('Xero: '+d.sources.accounting.error.plain); if(d.sources.pos&&d.sources.pos.error) warn.push('Square: '+d.sources.pos.error.plain); }
