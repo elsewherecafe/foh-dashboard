@@ -71,6 +71,11 @@ tr:last-child td{border-bottom:none}
 .customrow input[type=date]{font-family:'DM Sans',sans-serif;font-size:13px;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--text)}
 .chint{font-size:12px;color:var(--pagetext-dim)}
 .note{font-size:13px;color:var(--muted);line-height:1.5;margin-top:0.3rem}
+.bar{height:6px;border-radius:3px;background:rgba(13,13,13,0.07);overflow:hidden;margin-top:5px}
+.bar span{display:block;height:100%;background:var(--accent);border-radius:3px}
+.up-v{color:var(--c-green);font-weight:500}
+.dn-v{color:var(--c-coral);font-weight:500}
+.movh{font-family:'Khand',sans-serif;font-size:16px;font-weight:600;color:var(--ink);margin:0.9rem 0 0.4rem}
 .dateinput{font-family:'DM Sans',sans-serif;font-size:13px;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--text)}
 .rangenote{background:var(--c-amber-bg);border:1px solid rgba(158,104,0,0.15);color:var(--c-amber);border-radius:8px;padding:0.6rem 0.8rem;font-size:12.5px;line-height:1.5;margin-top:0.4rem}
 </style>
@@ -95,8 +100,6 @@ tr:last-child td{border-bottom:none}
     <button class="pchip" data-p="last_week">Last week</button>
     <button class="pchip on" data-p="this_month">This month</button>
     <button class="pchip" data-p="last_month">Last month</button>
-    <button class="pchip" data-p="this_fy">This financial year</button>
-    <button class="pchip" data-p="last_fy">Last financial year</button>
     <button class="pchip" data-p="custom">Custom&hellip;</button>
   </div>
   <div id="customRow" style="display:none;align-items:center;gap:8px;margin:0.25rem 0 0;flex-wrap:wrap">
@@ -121,6 +124,24 @@ tr:last-child td{border-bottom:none}
     <div class="card" id="cardCogs"></div>
     <div class="card" id="cardWages"></div>
     <div class="card" id="cardSpacer" style="background:transparent;border:none"></div>
+  </div>
+
+  <div class="tablewrap">
+    <h2>When we trade</h2>
+    <div class="th2">Sales and transactions by time of day. Use it to roster to the rush.</div>
+    <div id="daypartTable"></div>
+  </div>
+
+  <div class="tablewrap">
+    <h2>Day of the week</h2>
+    <div class="th2">Which days carry the trade. Average per day, so a partial period still reads fairly.</div>
+    <div id="dowTable"></div>
+  </div>
+
+  <div class="tablewrap">
+    <h2>Movers</h2>
+    <div class="th2">Biggest changes vs the previous period, by dollars. Small swings are filtered out.</div>
+    <div id="moversTable"></div>
   </div>
 
   <div class="tablewrap">
@@ -245,6 +266,57 @@ function renderWages(cur,prev,yoy){
     +cmpLine('vs same last year',cur.wages,yoy&&yoy.wages)
     +'<div class="drives"><b>FOH labour</b> (wages + super), tagged Front of House in Xero. Rostered to trade? Trim hours or lift sales per shift.</div>';
 }
+function renderDayparts(cur){
+  var el=document.getElementById('daypartTable');
+  if(cur&&cur.rangeTooLong){ el.innerHTML='<div class="empty">Pick a range up to '+(cur.maxDays||100)+' days to see this.</div>'; return; }
+  if(!cur||!cur.dayparts||!cur.dayparts.length){ el.innerHTML='<div class="empty">No data for this period yet.</div>'; return; }
+  var max=0; cur.dayparts.forEach(function(d){ if(d.sales>max) max=d.sales; });
+  var rows=cur.dayparts.map(function(d){
+    var w=max>0?Math.round(d.sales/max*100):0;
+    return '<tr><td class="itemname">'+escapeHtml(d.label)+'<div class="bar"><span style="width:'+w+'%"></span></div></td>'
+      +'<td class="r">'+fmtQty(d.txns)+'</td>'
+      +'<td class="r">'+(d.avgSpend!=null?fmtMoney2(d.avgSpend):'\u2014')+'</td>'
+      +'<td class="r">'+fmtMoney2(d.sales)+'</td>'
+      +'<td class="r muted">'+(d.share!=null?d.share.toFixed(1)+'%':'\u2014')+'</td></tr>';
+  }).join('');
+  el.innerHTML='<table><thead><tr><th>Daypart</th><th class="r">Txns</th><th class="r">Avg spend</th><th class="r">Sales</th><th class="r">Share</th></tr></thead><tbody>'+rows+'</tbody></table>';
+}
+function renderDow(cur){
+  var el=document.getElementById('dowTable');
+  if(cur&&cur.rangeTooLong){ el.innerHTML='<div class="empty">Pick a range up to '+(cur.maxDays||100)+' days to see this.</div>'; return; }
+  if(!cur||!cur.daysOfWeek||!cur.daysOfWeek.length){ el.innerHTML='<div class="empty">No data for this period yet.</div>'; return; }
+  var max=0; cur.daysOfWeek.forEach(function(d){ if(d.avgSales>max) max=d.avgSales; });
+  var rows=cur.daysOfWeek.map(function(d){
+    var w=(max>0&&d.avgSales)?Math.round(d.avgSales/max*100):0;
+    return '<tr><td class="itemname">'+escapeHtml(d.label)+'<div class="bar"><span style="width:'+w+'%"></span></div></td>'
+      +'<td class="r muted">'+fmtQty(d.occurrences)+'</td>'
+      +'<td class="r">'+fmtQty(d.txns)+'</td>'
+      +'<td class="r">'+(d.avgSpend!=null?fmtMoney2(d.avgSpend):'\u2014')+'</td>'
+      +'<td class="r">'+(d.avgSales!=null?fmtMoney2(d.avgSales):'\u2014')+'</td></tr>';
+  }).join('');
+  el.innerHTML='<table><thead><tr><th>Day</th><th class="r">Times</th><th class="r">Txns</th><th class="r">Avg spend</th><th class="r">Avg sales/day</th></tr></thead><tbody>'+rows+'</tbody></table>';
+}
+function moverRows(list){
+  return list.map(function(m){
+    var cls=m.change>=0?'up-v':'dn-v';
+    var arrow=m.change>=0?'\u25B2':'\u25BC';
+    var pc=(m.isNew?'new':(m.pctChange!=null?(m.pctChange>0?'+':'')+m.pctChange.toFixed(0)+'%':'\u2014'));
+    return '<tr><td class="itemname">'+escapeHtml(m.name)+'</td><td class="muted">'+escapeHtml(m.category||'')+'</td>'
+      +'<td class="r muted">'+fmtMoney2(m.was)+'</td><td class="r">'+fmtMoney2(m.now)+'</td>'
+      +'<td class="r '+cls+'">'+arrow+' '+fmtMoney2(Math.abs(m.change))+'</td>'
+      +'<td class="r muted">'+pc+'</td></tr>';
+  }).join('');
+}
+function renderMovers(mv,cur){
+  var el=document.getElementById('moversTable');
+  if(cur&&cur.rangeTooLong){ el.innerHTML='<div class="empty">Pick a range up to '+(cur.maxDays||100)+' days to see this.</div>'; return; }
+  if(!mv||((!mv.up||!mv.up.length)&&(!mv.down||!mv.down.length))){ el.innerHTML='<div class="empty">Nothing moved by more than $'+((mv&&mv.minAbs)||25)+' vs the previous period.</div>'; return; }
+  var head='<thead><tr><th>Item</th><th>Category</th><th class="r">Was</th><th class="r">Now</th><th class="r">Change</th><th class="r">%</th></tr></thead>';
+  var html='';
+  if(mv.up&&mv.up.length) html+='<div class="movh">Moving up</div><table>'+head+'<tbody>'+moverRows(mv.up)+'</tbody></table>';
+  if(mv.down&&mv.down.length) html+='<div class="movh">Moving down</div><table>'+head+'<tbody>'+moverRows(mv.down)+'</tbody></table>';
+  el.innerHTML=html;
+}
 function renderItems(cur){
   var el=document.getElementById('itemTable');
   if(cur&&cur.rangeTooLong){ el.innerHTML='<div class="empty">This range is too long for the item list. Square is read sale by sale, so pick a range up to about '+(cur.maxDays||100)+' days (a month or a quarter) to see the full drinks breakdown.</div>'; return; }
@@ -268,7 +340,7 @@ function load(force){
     return res.json();
   }).then(function(d){
     if(!d) return;
-    renderTxn(d.cur,d.prev,d.yoy); renderAvg(d.cur,d.prev,d.yoy); renderSales(d.cur,d.prev,d.yoy); renderCogs(d.cur,d.prev,d.yoy); renderWages(d.cur,d.prev,d.yoy); renderItems(d.cur);
+    renderTxn(d.cur,d.prev,d.yoy); renderAvg(d.cur,d.prev,d.yoy); renderSales(d.cur,d.prev,d.yoy); renderCogs(d.cur,d.prev,d.yoy); renderWages(d.cur,d.prev,d.yoy); renderItems(d.cur); renderDayparts(d.cur); renderDow(d.cur); renderMovers(d.movers,d.cur);
     var t=d.generatedAt?new Date(d.generatedAt):new Date();
     document.getElementById('freshText').textContent='Updated '+t.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit'})+' \u00b7 updates when you open or refresh';
     var warn=[]; if(d.sources){ if(d.sources.accounting&&d.sources.accounting.error) warn.push('Xero: '+d.sources.accounting.error.plain); if(d.sources.pos&&d.sources.pos.error) warn.push('Square: '+d.sources.pos.error.plain); }
@@ -290,18 +362,22 @@ document.getElementById('refreshBtn').addEventListener('click',function(){ load(
 
 function updHint(){
   var f=document.getElementById('cFrom').value, t=document.getElementById('cTo').value;
-  var h=document.getElementById('cHint');
-  if(!f||!t){ h.textContent='Up to ~100 days for the Square item list.'; return; }
+  var h=document.getElementById('cHint'); var btn=document.getElementById('cApply');
+  if(!f||!t){ h.textContent='Pick two dates. Up to 100 days.'; btn.disabled=false; return; }
   var span=Math.round((new Date(t)-new Date(f))/86400000)+1;
-  if(span<1){ h.textContent='The To date must be after the From date.'; return; }
-  h.textContent=span+' day'+(span===1?'':'s')+(span>100?' \u00b7 too long for the item list (Xero cards still work)':'');
+  if(span<1){ h.textContent='The To date must be after the From date.'; btn.disabled=true; return; }
+  if(span>100){ h.textContent=span+' days \u00b7 too long. Pick 100 days or fewer.'; btn.disabled=true; return; }
+  h.textContent=span+' day'+(span===1?'':'s'); btn.disabled=false;
 }
 document.getElementById('cFrom').addEventListener('change',updHint);
 document.getElementById('cTo').addEventListener('change',updHint);
+var MAX_RANGE_DAYS=100;
 document.getElementById('cApply').addEventListener('click',function(){
   var f=document.getElementById('cFrom').value, t=document.getElementById('cTo').value;
   if(!f||!t){ updHint(); return; }
   if(new Date(t)<new Date(f)){ updHint(); return; }
+  var span=Math.round((new Date(t)-new Date(f))/86400000)+1;
+  if(span>MAX_RANGE_DAYS){ updHint(); return; }  /* hard cap: cannot apply */
   customFrom=f; customTo=t; currentPeriod='custom'; load(true);
 });
 load(false);

@@ -404,6 +404,10 @@ const ADAPTERS = {
       let cursor = null, pages = 0;
       let txnCount = 0;        // completed orders (all, for transaction count)
       let totalNetSales = 0;   // total sales Food + non-Food (for average spend)
+      /* Daypart + day-of-week buckets, filled in the same pass (no extra calls). */
+      const dp = {}; for (const d of DAYPARTS) dp[d.key] = { sales: 0, txns: 0 };
+      dp.outside = { sales: 0, txns: 0 };
+      const dow = DOW_LABELS.map(() => ({ sales: 0, txns: 0, days: {} }));
       do {
         const body_q = {
           location_ids: loc.ids,
@@ -425,6 +429,8 @@ const ADAPTERS = {
         const body = await res.json();
         for (const order of (body.orders || [])) {
           txnCount++; /* every completed order is one transaction */
+          /* Order-level net (sum of its line items) for daypart/dow buckets. */
+          let orderNet = 0;
           for (const li of (order.line_items || [])) {
             const varId = li.catalog_object_id || null;
             const category = (varId && map.varToCat[varId]) || 'Uncategorised';
@@ -433,6 +439,7 @@ const ADAPTERS = {
             const tax = (li.total_tax_money && li.total_tax_money.amount) || 0;
             const netCents = gross - disc - tax; // approx ex-GST net
             totalNetSales += netCents / 100; /* ALL items, for average spend */
+            orderNet += netCents / 100;
             if ((category || '').trim().toLowerCase() === this._FOOD_CATEGORY.toLowerCase()) continue; // FOH list skips kitchen
             const name = li.name || (varId && map.varToItem[varId]) || '(custom item)';
             const qty = parseFloat(li.quantity || '0') || 0;
@@ -441,23 +448,59 @@ const ADAPTERS = {
             items[key].qty += qty;
             items[key].netSales += netCents / 100;
           }
+          /* Bucket the whole order by when it closed, in venue time. */
+          const when = order.closed_at || order.created_at;
+          if (when) {
+            const lh = localHourDow(when, tz);
+            const key = daypartFor(lh.mins);
+            if (dp[key]) { dp[key].sales += orderNet; dp[key].txns++; }
+            const dslot = dow[lh.dow];
+            if (dslot) {
+              dslot.sales += orderNet; dslot.txns++;
+              /* count distinct calendar days per weekday so we can average */
+              const dayKey = new Date(when).toISOString().slice(0, 10);
+              dslot.days[dayKey] = true;
+            }
+          }
         }
         cursor = body.cursor || null; pages++;
       } while (cursor && pages < 300);
 
+      const r2 = (x) => Math.round(x * 100) / 100;
       const list = Object.values(items)
-        .map((it) => ({ name: it.name, category: it.category, qty: Math.round(it.qty * 100) / 100, sales: Math.round(it.netSales * 100) / 100 }))
+        .map((it) => ({ name: it.name, category: it.category, qty: Math.round(it.qty * 100) / 100, sales: r2(it.netSales) }))
         .sort((a, b) => b.sales - a.sales);
-      const fohNetSales = Math.round(list.reduce((s, it) => s + it.sales, 0) * 100) / 100;
-      totalNetSales = Math.round(totalNetSales * 100) / 100;
-      const avgSpend = txnCount > 0 ? Math.round((totalNetSales / txnCount) * 100) / 100 : null;
-      return { items: list, fohNetSales, txnCount, totalNetSales, avgSpend };
+      const fohNetSales = r2(list.reduce((s, it) => s + it.sales, 0));
+      totalNetSales = r2(totalNetSales);
+      const avgSpend = txnCount > 0 ? r2(totalNetSales / txnCount) : null;
+
+      const dayparts = DAYPARTS.map((d) => ({
+        key: d.key, label: d.label,
+        sales: r2(dp[d.key].sales), txns: dp[d.key].txns,
+        share: totalNetSales > 0 ? Math.round((dp[d.key].sales / totalNetSales) * 1000) / 10 : null,
+        avgSpend: dp[d.key].txns > 0 ? r2(dp[d.key].sales / dp[d.key].txns) : null
+      }));
+      if (dp.outside.txns > 0) {
+        dayparts.push({ key: 'outside', label: 'Outside trading hours', sales: r2(dp.outside.sales), txns: dp.outside.txns,
+          share: totalNetSales > 0 ? Math.round((dp.outside.sales / totalNetSales) * 1000) / 10 : null,
+          avgSpend: r2(dp.outside.sales / dp.outside.txns) });
+      }
+      const daysOfWeek = dow.map((d, i) => {
+        const nDays = Object.keys(d.days).length;
+        return { label: DOW_LABELS[i], sales: r2(d.sales), txns: d.txns, occurrences: nDays,
+          avgSales: nDays > 0 ? r2(d.sales / nDays) : null,
+          avgSpend: d.txns > 0 ? r2(d.sales / d.txns) : null };
+      });
+
+      return { items: list, fohNetSales, txnCount, totalNetSales, avgSpend, dayparts, daysOfWeek };
     },
 
-    /* FOH POS pull: itemised non-food list + FOH sales + transactions + avg spend. */
+    /* FOH POS pull: items, sales, transactions, avg spend, dayparts, day-of-week. */
     async fetchFoh(env, h, q) {
       const r = await this._itemSales(env, q.from, q.to, q.tz, q.rollover || 0);
-      return { items: r.items, fohNetSales: r.fohNetSales, txnCount: r.txnCount, avgSpend: r.avgSpend, rangeTooLong: !!r.rangeTooLong, maxDays: r.maxDays || null };
+      return { items: r.items, fohNetSales: r.fohNetSales, txnCount: r.txnCount, avgSpend: r.avgSpend,
+               dayparts: r.dayparts || null, daysOfWeek: r.daysOfWeek || null,
+               rangeTooLong: !!r.rangeTooLong, maxDays: r.maxDays || null };
     },
 
     async fetchMonthly(env, h, q) {
@@ -560,6 +603,37 @@ function sumFohCogs(rep) {
   const round2 = (x) => Math.round((x + Number.EPSILON) * 100) / 100;
   return saw ? round2(total) : null;
 }
+
+/* Local hour (0-23) and weekday (0=Mon..6=Sun) for a UTC instant, in the venue tz.
+   Used to bucket Square orders into dayparts and days of week correctly across
+   AEST/AEDT. */
+function localHourDow(iso, tz) {
+  const d = new Date(iso);
+  const dtf = new Intl.DateTimeFormat('en-GB', {
+    timeZone: tz, hour12: false, weekday: 'short', hour: '2-digit', minute: '2-digit'
+  });
+  const parts = {};
+  for (const p of dtf.formatToParts(d)) parts[p.type] = p.value;
+  const hour = parseInt(parts.hour, 10);
+  const minute = parseInt(parts.minute, 10) || 0;
+  const wkMap = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+  const dow = wkMap[parts.weekday] != null ? wkMap[parts.weekday] : 0;
+  return { hour, minute, dow, mins: hour * 60 + minute };
+}
+
+/* Elsewhere trades 8:00-15:30, seven days (kitchen to 14:30). Four blocks the
+   leaders can roster against. Owner-confirmed. */
+const DAYPARTS = [
+  { key: 'early',   label: 'Early (8:00–10:00)',        from: 8 * 60,  to: 10 * 60 },
+  { key: 'midmorn', label: 'Mid-morning (10:00–12:00)', from: 10 * 60, to: 12 * 60 },
+  { key: 'lunch',   label: 'Lunch (12:00–14:00)',       from: 12 * 60, to: 14 * 60 },
+  { key: 'arvo',    label: 'Afternoon (14:00–15:30)',   from: 14 * 60, to: 15 * 60 + 30 }
+];
+function daypartFor(mins) {
+  for (const d of DAYPARTS) { if (mins >= d.from && mins < d.to) return d.key; }
+  return 'outside'; /* before 8am or after 3:30pm - shown separately, not hidden */
+}
+const DOW_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 /* ============================================================================
    Xero P&L mapper - turns the report's nested Sections into the four money
@@ -1337,11 +1411,50 @@ async function apiFoh(env, url) {
       cogsPct: pct(cogs), wagesPct: pct(wages),
       txnCount: (pos.txnCount != null) ? pos.txnCount : null,
       avgSpend: (pos.avgSpend != null) ? pos.avgSpend : null,
+      dayparts: pos.dayparts || null,
+      daysOfWeek: pos.daysOfWeek || null,
       rangeTooLong: !!pos.rangeTooLong,
       maxDays: pos.maxDays || null,
       items: Array.isArray(pos.items) ? pos.items : null
     };
   };
+
+  /* Movers: item sales change vs the previous period, ranked by DOLLAR change
+     (owner-confirmed). A minimum threshold keeps tiny items from cluttering the
+     list - a $12 item doubling is not a decision, a latte dropping $500 is. */
+  const MOVER_MIN_ABS = 25; /* ignore swings under $25 */
+  function computeMovers(curSlot, prevSlot) {
+    const cur = (curSlot && curSlot.pos && curSlot.pos.items) || null;
+    const prv = (prevSlot && prevSlot.pos && prevSlot.pos.items) || null;
+    if (!cur || !prv) return null;
+    const prevMap = {};
+    for (const it of prv) prevMap[it.name] = it.sales;
+    const rows = [];
+    for (const it of cur) {
+      const was = prevMap[it.name] != null ? prevMap[it.name] : 0;
+      const change = Math.round((it.sales - was) * 100) / 100;
+      if (Math.abs(change) < MOVER_MIN_ABS) continue;
+      const pctChange = was > 0 ? Math.round(((it.sales - was) / was) * 1000) / 10 : null;
+      rows.push({ name: it.name, category: it.category, now: it.sales, was: Math.round(was * 100) / 100, change, pctChange, isNew: was === 0 });
+    }
+    /* Items that sold last period but not at all this one (dropped to zero). */
+    const curNames = {};
+    for (const it of cur) curNames[it.name] = true;
+    for (const it of prv) {
+      if (curNames[it.name]) continue;
+      const change = Math.round((0 - it.sales) * 100) / 100;
+      if (Math.abs(change) < MOVER_MIN_ABS) continue;
+      rows.push({ name: it.name, category: it.category, now: 0, was: it.sales, change, pctChange: -100, isNew: false });
+    }
+    rows.sort((a, b) => b.change - a.change);
+    return {
+      up: rows.filter((r) => r.change > 0).slice(0, 10),
+      down: rows.filter((r) => r.change < 0).sort((a, b) => a.change - b.change).slice(0, 10),
+      minAbs: MOVER_MIN_ABS
+    };
+  }
+
+  const movers = computeMovers(data.periods.cur, data.periods.prev);
 
   return json({
     generatedAt: data.generatedAt,
@@ -1349,7 +1462,8 @@ async function apiFoh(env, url) {
     sources: { accounting: sAcc, pos: sPos },
     cur: shape(data.periods.cur),
     prev: shape(data.periods.prev),
-    yoy: shape(data.periods.yoy)
+    yoy: shape(data.periods.yoy),
+    movers: movers
   });
 }
 
