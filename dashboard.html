@@ -277,7 +277,11 @@ function renderCogs(cur,prev,yoy){
 }
 function renderWages(cur,prev,yoy){
   var el=document.getElementById('cardWages');
-  if(!cur||cur.wages===null||cur.wages===undefined){ el.innerHTML='<div class="badge xe">From Xero</div><div class="lab">FOH Wages &amp; Salaries</div><div class="na">Not configured</div><div class="sub">No Front of House wages journalled for this period yet.</div>'; return; }
+  if(!cur||cur.wages===null||cur.wages===undefined){
+    el.innerHTML='<div class="badge xe">From Xero</div><div class="lab">FOH Wages &amp; Salaries</div>'
+      +'<div class="na">Not posted yet</div>'
+      +'<div class="sub">Pays are processed <b>Wednesday</b>, covering the week just gone (Mon\u2013Sun). Wages for this period land in Xero after that run, so a blank here early in the week is normal, not a fault.</div>';
+    return; }
   el.innerHTML='<div class="badge xe">From Xero &middot; ex&#8209;GST</div><div class="lab">FOH Wages &amp; Salaries</div>'
     +'<div style="display:flex;align-items:baseline;gap:14px"><div class="pct">'+pct(cur.wagesPct)+'</div><div class="val" style="font-size:30px">'+fmtMoney(cur.wages)+'</div></div>'
     +'<div class="pctd">of FOH sales</div>'
@@ -285,7 +289,7 @@ function renderWages(cur,prev,yoy){
     +cmpLine('vs prev period',cur.wages,prev&&prev.wages)
     +cmpLine('vs same last year',cur.wages,yoy&&yoy.wages)
     +(cur.wagesPctTotal!=null?'<div class="second"><b>'+cur.wagesPctTotal.toFixed(1)+'%</b> of total venue sales (food + drinks) \u00b7 no target. FOH staff serve the whole floor, so this is the honest read.</div>':'')
-    +'<div class="drives"><b>The lever:</b> measured against FOH sales on purpose \u2014 it only improves when we upsell. Second drinks, a slice to finish, coffee with the bill.</div>';
+    +'<div class="drives"><b>The lever:</b> measured against FOH sales on purpose \u2014 it only improves when we upsell. Second drinks, a slice to finish, coffee with the bill.<br><br><b>Pays run Wednesday</b> (covering Mon\u2013Sun just gone), so the current week fills in after that.</div>';
 }
 function renderDayparts(cur){
   var el=document.getElementById('daypartTable');
