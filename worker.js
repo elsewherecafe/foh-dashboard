@@ -385,7 +385,17 @@ const ADAPTERS = {
        excluded. For AU, inclusive tax stays in gross, so we subtract total_tax too
        to approximate ex-GST net, and badge it clearly as an indicative Square figure. */
     _FOOD_CATEGORY: 'Food',
+    /* Square item/order walking is per-transaction, so very long ranges (a full
+       financial year = tens of thousands of orders) can't be paged safely. Cap at
+       ~100 days: beyond that, return a rangeTooLong flag so the page shows a clear
+       message rather than a misleading blank. Xero cards are unaffected (summary). */
+    _MAX_ITEM_DAYS: 100,
     async _itemSales(env, from, to, tz, rollover) {
+      const dayMs = 86400000;
+      const spanDays = Math.round((new Date(to + 'T12:00:00Z') - new Date(from + 'T12:00:00Z')) / dayMs) + 1;
+      if (spanDays > this._MAX_ITEM_DAYS) {
+        return { items: null, fohNetSales: null, txnCount: null, avgSpend: null, totalNetSales: null, rangeTooLong: true, maxDays: this._MAX_ITEM_DAYS };
+      }
       const loc = await this._locations(env);
       const map = await this._catalogMap(env);
       const startUtc = localDayStartToUtc(from, tz, rollover);
@@ -447,7 +457,7 @@ const ADAPTERS = {
     /* FOH POS pull: itemised non-food list + FOH sales + transactions + avg spend. */
     async fetchFoh(env, h, q) {
       const r = await this._itemSales(env, q.from, q.to, q.tz, q.rollover || 0);
-      return { items: r.items, fohNetSales: r.fohNetSales, txnCount: r.txnCount, avgSpend: r.avgSpend };
+      return { items: r.items, fohNetSales: r.fohNetSales, txnCount: r.txnCount, avgSpend: r.avgSpend, rangeTooLong: !!r.rangeTooLong, maxDays: r.maxDays || null };
     },
 
     async fetchMonthly(env, h, q) {
@@ -1327,6 +1337,8 @@ async function apiFoh(env, url) {
       cogsPct: pct(cogs), wagesPct: pct(wages),
       txnCount: (pos.txnCount != null) ? pos.txnCount : null,
       avgSpend: (pos.avgSpend != null) ? pos.avgSpend : null,
+      rangeTooLong: !!pos.rangeTooLong,
+      maxDays: pos.maxDays || null,
       items: Array.isArray(pos.items) ? pos.items : null
     };
   };

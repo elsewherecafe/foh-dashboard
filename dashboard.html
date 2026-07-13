@@ -66,6 +66,13 @@ tr:last-child td{border-bottom:none}
 .spin{display:inline-block;width:12px;height:12px;border:2px solid rgba(242,169,0,0.25);border-top-color:var(--accent);border-radius:50%;animation:spin 0.9s linear infinite;vertical-align:-2px}
 @keyframes spin{to{transform:rotate(360deg)}}
 .empty{color:var(--muted);font-size:14px;padding:1rem 0}
+.customrow{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 0.5rem;color:var(--pagetext-dim);font-size:13px}
+.customrow label{display:flex;gap:6px;align-items:center}
+.customrow input[type=date]{font-family:'DM Sans',sans-serif;font-size:13px;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--text)}
+.chint{font-size:12px;color:var(--pagetext-dim)}
+.note{font-size:13px;color:var(--muted);line-height:1.5;margin-top:0.3rem}
+.dateinput{font-family:'DM Sans',sans-serif;font-size:13px;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--text)}
+.rangenote{background:var(--c-amber-bg);border:1px solid rgba(158,104,0,0.15);color:var(--c-amber);border-radius:8px;padding:0.6rem 0.8rem;font-size:12.5px;line-height:1.5;margin-top:0.4rem}
 </style>
 </head>
 <body>
@@ -90,6 +97,12 @@ tr:last-child td{border-bottom:none}
     <button class="pchip" data-p="last_month">Last month</button>
     <button class="pchip" data-p="this_fy">This financial year</button>
     <button class="pchip" data-p="last_fy">Last financial year</button>
+    <button class="pchip" data-p="custom">Custom&hellip;</button>
+  </div>
+  <div id="customRow" style="display:none;align-items:center;gap:8px;margin:0.25rem 0 0;flex-wrap:wrap">
+    <span class="plabel">From</span><input type="date" id="cFrom" class="dateinput">
+    <span class="plabel">To</span><input type="date" id="cTo" class="dateinput">
+    <button class="rbtn" id="applyCustom">Apply</button>
   </div>
   <div class="fresh-row">
     <span id="freshText">Loading&hellip;</span>
@@ -126,6 +139,8 @@ tr:last-child td{border-bottom:none}
 var TZ='Australia/Melbourne';
 var ROLLOVER=0;
 var currentPeriod='this_month';
+var customFrom=null, customTo=null;
+var customFrom=null, customTo=null;
 
 function fmtMoney(n){ if(n===null||n===undefined) return '\u2014'; return '$'+Number(n).toLocaleString('en-AU',{minimumFractionDigits:0,maximumFractionDigits:0}); }
 function fmtMoney2(n){ if(n===null||n===undefined) return '\u2014'; return '$'+Number(n).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}); }
@@ -137,6 +152,18 @@ function startOfWeek(d){ var x=new Date(d); var day=(x.getDay()+6)%7; x.setDate(
 function computeRanges(period){
   var now=new Date(); var curFrom,curTo,prevFrom,prevTo,yoyFrom,yoyTo,label;
   function fyStart(y){ return new Date(y,6,1); }
+  if(period==='custom'){
+    if(!customFrom||!customTo) return null;
+    curFrom=new Date(customFrom+'T12:00:00'); curTo=new Date(customTo+'T12:00:00');
+    var span=Math.round((curTo-curFrom)/86400000)+1;
+    prevTo=new Date(curFrom); prevTo.setDate(prevTo.getDate()-1);
+    prevFrom=new Date(prevTo); prevFrom.setDate(prevFrom.getDate()-(span-1));
+    yoyFrom=new Date(curFrom); yoyFrom.setFullYear(yoyFrom.getFullYear()-1);
+    yoyTo=new Date(curTo); yoyTo.setFullYear(yoyTo.getFullYear()-1);
+    label='Custom range';
+    return { cur:[ymd(curFrom),ymd(curTo)], prev:[ymd(prevFrom),ymd(prevTo)], yoy:[ymd(yoyFrom),ymd(yoyTo)], label:label,
+      labelRange:curFrom.toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'})+' \u2013 '+curTo.toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) };
+  }
   if(period==='this_week'){ curFrom=startOfWeek(now); curTo=new Date(curFrom); curTo.setDate(curTo.getDate()+6);
     prevFrom=new Date(curFrom); prevFrom.setDate(prevFrom.getDate()-7); prevTo=new Date(curTo); prevTo.setDate(prevTo.getDate()-7);
     yoyFrom=new Date(curFrom); yoyFrom.setDate(yoyFrom.getDate()-364); yoyTo=new Date(curTo); yoyTo.setDate(yoyTo.getDate()-364); label='This week'; }
@@ -164,8 +191,13 @@ function cmpLine(label,cur,prev){
 }
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
 
+function longMsg(cur){
+  var d=(cur&&cur.maxDays)?cur.maxDays:100;
+  return '<div class="na">Range too long</div><div class="note">Square data is pulled sale by sale, so it works up to about '+d+' days. Pick a shorter range (a month or a quarter) to see this.</div>';
+}
 function renderTxn(cur,prev,yoy){
   var el=document.getElementById('cardTxn');
+  if(cur&&cur.rangeTooLong){ el.innerHTML='<div class="badge sq">From Square</div><div class="lab">Number of Transactions</div>'+longMsg(cur); return; }
   if(!cur||cur.txnCount===null||cur.txnCount===undefined){ el.innerHTML='<div class="badge sq">From Square</div><div class="lab">Number of Transactions</div><div class="na">Not configured</div>'; return; }
   el.innerHTML='<div class="badge sq">From Square</div><div class="lab">Number of Transactions</div>'
     +'<div class="val">'+fmtQty(cur.txnCount)+'</div>'
@@ -175,6 +207,7 @@ function renderTxn(cur,prev,yoy){
 }
 function renderAvg(cur,prev,yoy){
   var el=document.getElementById('cardAvg');
+  if(cur&&cur.rangeTooLong){ el.innerHTML='<div class="badge sq">From Square</div><div class="lab">Average Customer Spend</div>'+longMsg(cur); return; }
   if(!cur||cur.avgSpend===null||cur.avgSpend===undefined){ el.innerHTML='<div class="badge sq">From Square</div><div class="lab">Average Customer Spend</div><div class="na">Not configured</div>'; return; }
   el.innerHTML='<div class="badge sq">From Square &middot; indicative</div><div class="lab">Average Customer Spend</div>'
     +'<div class="val">'+fmtMoney2(cur.avgSpend)+'</div>'
@@ -184,6 +217,7 @@ function renderAvg(cur,prev,yoy){
 }
 function renderSales(cur,prev,yoy){
   var el=document.getElementById('cardSales');
+  if(cur&&cur.rangeTooLong){ el.innerHTML='<div class="badge sq">From Square</div><div class="lab">FOH Sales (non&#8209;Food)</div>'+longMsg(cur); return; }
   if(!cur||cur.sales===null||cur.sales===undefined){ el.innerHTML='<div class="badge sq">From Square</div><div class="lab">FOH Sales</div><div class="na">Not configured</div><div class="sub">Square isn\u2019t returning item sales for this period yet.</div>'; return; }
   el.innerHTML='<div class="badge sq">From Square &middot; indicative</div><div class="lab">FOH Sales (non&#8209;Food)</div>'
     +'<div class="val">'+fmtMoney(cur.sales)+'</div>'
@@ -213,6 +247,7 @@ function renderWages(cur,prev,yoy){
 }
 function renderItems(cur){
   var el=document.getElementById('itemTable');
+  if(cur&&cur.rangeTooLong){ el.innerHTML='<div class="empty">This range is too long for the item list. Square is read sale by sale, so pick a range up to about '+(cur.maxDays||100)+' days (a month or a quarter) to see the full drinks breakdown.</div>'; return; }
   if(!cur||!cur.items||!cur.items.length){ el.innerHTML='<div class="empty">No item sales returned for this period yet.</div>'; return; }
   var rows=cur.items.map(function(it){
     return '<tr><td class="itemname">'+escapeHtml(it.name)+'</td><td class="muted">'+escapeHtml(it.category||'')+'</td>'
@@ -223,6 +258,7 @@ function renderItems(cur){
 
 function load(force){
   var r=computeRanges(currentPeriod);
+  if(!r){ document.getElementById('freshText').textContent='Pick a From and To date, then hit Apply.'; return; }
   document.getElementById('rangeH').innerHTML=r.label+' <span>&middot; '+r.labelRange+'</span>';
   document.getElementById('freshText').innerHTML='<span class="spin"></span> Loading&hellip;';
   var qs='cur='+r.cur[0]+':'+r.cur[1]+'&prev='+r.prev[0]+':'+r.prev[1]+'&yoy='+r.yoy[0]+':'+r.yoy[1]
@@ -244,9 +280,30 @@ document.getElementById('periods').addEventListener('click',function(e){
   var b=e.target.closest('.pchip'); if(!b) return;
   currentPeriod=b.getAttribute('data-p');
   Array.prototype.forEach.call(document.querySelectorAll('.pchip'),function(x){x.classList.remove('on');});
-  b.classList.add('on'); load(false);
+  b.classList.add('on');
+  var cr=document.getElementById('customRow');
+  if(currentPeriod==='custom'){ cr.style.display='flex'; updHint(); if(!customFrom||!customTo){ document.getElementById('freshText').textContent='Pick a From and To date, then hit Apply.'; return; } }
+  else { cr.style.display='none'; }
+  load(false);
 });
 document.getElementById('refreshBtn').addEventListener('click',function(){ load(true); });
+
+function updHint(){
+  var f=document.getElementById('cFrom').value, t=document.getElementById('cTo').value;
+  var h=document.getElementById('cHint');
+  if(!f||!t){ h.textContent='Up to ~100 days for the Square item list.'; return; }
+  var span=Math.round((new Date(t)-new Date(f))/86400000)+1;
+  if(span<1){ h.textContent='The To date must be after the From date.'; return; }
+  h.textContent=span+' day'+(span===1?'':'s')+(span>100?' \u00b7 too long for the item list (Xero cards still work)':'');
+}
+document.getElementById('cFrom').addEventListener('change',updHint);
+document.getElementById('cTo').addEventListener('change',updHint);
+document.getElementById('cApply').addEventListener('click',function(){
+  var f=document.getElementById('cFrom').value, t=document.getElementById('cTo').value;
+  if(!f||!t){ updHint(); return; }
+  if(new Date(t)<new Date(f)){ updHint(); return; }
+  customFrom=f; customTo=t; currentPeriod='custom'; load(true);
+});
 load(false);
 </script>
 <!-- EOF dashboard.html -->
