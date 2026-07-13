@@ -1430,38 +1430,82 @@ async function apiFoh(env, url) {
     };
   };
 
-  /* Movers: item sales change vs the previous period, ranked by DOLLAR change
-     (owner-confirmed). A minimum threshold keeps tiny items from cluttering the
-     list - a $12 item doubling is not a decision, a latte dropping $500 is. */
-  const MOVER_MIN_ABS = 25; /* ignore swings under $25 */
+  /* Movers: change vs the previous period, ranked by QUANTITY (owner-confirmed).
+     The team can act on cups and plates, not dollars - and quantity strips out
+     price changes, so it tells the truth about demand. Dollar change is shown
+     alongside for context.
+
+     COFFEE & TEA IS GROUPED into one line: a latte vs a cappuccino is the same
+     milk and beans, so splitting them is noise. "Coffee & Tea down 200 cups" is
+     a signal; "Latte down 40, Flat White up 45" is just customers changing their
+     mind about texture.
+
+     Threshold (owner-confirmed): show an item if it moved 10+ units, OR moved 30%+
+     with at least 3 units. The second rule catches small items genuinely trending
+     (5 -> 9 a week is a real move) without letting 1 -> 2 through as "+100%". */
+  const GROUPED_CATEGORY = 'Coffee & Tea';
+  const MOVER_MIN_QTY = 10;      /* big movers by volume */
+  const MOVER_MIN_PCT = 30;      /* small items trending hard... */
+  const MOVER_MIN_QTY_PCT = 3;   /* ...but must still move at least this many units */
+
+  function rollUp(items) {
+    /* Collapse the grouped category into a single line; keep everything else as-is. */
+    if (!items) return null;
+    const out = {};
+    let grpQty = 0, grpSales = 0, grpSeen = false;
+    for (const it of items) {
+      if ((it.category || '').trim().toLowerCase() === GROUPED_CATEGORY.toLowerCase()) {
+        grpQty += it.qty; grpSales += it.sales; grpSeen = true;
+      } else {
+        out[it.name] = { name: it.name, category: it.category, qty: it.qty, sales: it.sales };
+      }
+    }
+    if (grpSeen) {
+      out[GROUPED_CATEGORY] = { name: GROUPED_CATEGORY + ' (all)', category: GROUPED_CATEGORY,
+        qty: Math.round(grpQty * 100) / 100, sales: Math.round(grpSales * 100) / 100, grouped: true };
+    }
+    return out;
+  }
+
   function computeMovers(curSlot, prevSlot) {
-    const cur = (curSlot && curSlot.pos && curSlot.pos.items) || null;
-    const prv = (prevSlot && prevSlot.pos && prevSlot.pos.items) || null;
-    if (!cur || !prv) return null;
-    const prevMap = {};
-    for (const it of prv) prevMap[it.name] = it.sales;
+    const curItems = (curSlot && curSlot.pos && curSlot.pos.items) || null;
+    const prvItems = (prevSlot && prevSlot.pos && prevSlot.pos.items) || null;
+    if (!curItems || !prvItems) return null;
+    const cur = rollUp(curItems);
+    const prv = rollUp(prvItems);
+
+    const names = {};
+    for (const k of Object.keys(cur)) names[k] = true;
+    for (const k of Object.keys(prv)) names[k] = true;
+
     const rows = [];
-    for (const it of cur) {
-      const was = prevMap[it.name] != null ? prevMap[it.name] : 0;
-      const change = Math.round((it.sales - was) * 100) / 100;
-      if (Math.abs(change) < MOVER_MIN_ABS) continue;
-      const pctChange = was > 0 ? Math.round(((it.sales - was) / was) * 1000) / 10 : null;
-      rows.push({ name: it.name, category: it.category, now: it.sales, was: Math.round(was * 100) / 100, change, pctChange, isNew: was === 0 });
+    for (const k of Object.keys(names)) {
+      const c = cur[k] || { qty: 0, sales: 0, name: (prv[k] && prv[k].name) || k, category: (prv[k] && prv[k].category) || '', grouped: (prv[k] && prv[k].grouped) || false };
+      const p = prv[k] || { qty: 0, sales: 0 };
+      const qtyChange = Math.round((c.qty - p.qty) * 100) / 100;
+      const salesChange = Math.round((c.sales - p.sales) * 100) / 100;
+      if (qtyChange === 0) continue;
+      const pctChange = p.qty > 0 ? Math.round(((c.qty - p.qty) / p.qty) * 1000) / 10 : null;
+
+      /* Dual threshold: big by volume, OR small but genuinely trending. */
+      const bigMove = Math.abs(qtyChange) >= MOVER_MIN_QTY;
+      const trending = pctChange != null && Math.abs(pctChange) >= MOVER_MIN_PCT && Math.abs(qtyChange) >= MOVER_MIN_QTY_PCT;
+      const isNew = p.qty === 0 && c.qty >= MOVER_MIN_QTY_PCT;
+      if (!bigMove && !trending && !isNew) continue;
+
+      rows.push({
+        name: c.name, category: c.category, grouped: !!c.grouped,
+        qtyNow: Math.round(c.qty * 100) / 100, qtyWas: Math.round(p.qty * 100) / 100,
+        qtyChange, pctChange,
+        salesNow: Math.round(c.sales * 100) / 100, salesWas: Math.round(p.sales * 100) / 100, salesChange,
+        isNew: p.qty === 0
+      });
     }
-    /* Items that sold last period but not at all this one (dropped to zero). */
-    const curNames = {};
-    for (const it of cur) curNames[it.name] = true;
-    for (const it of prv) {
-      if (curNames[it.name]) continue;
-      const change = Math.round((0 - it.sales) * 100) / 100;
-      if (Math.abs(change) < MOVER_MIN_ABS) continue;
-      rows.push({ name: it.name, category: it.category, now: 0, was: it.sales, change, pctChange: -100, isNew: false });
-    }
-    rows.sort((a, b) => b.change - a.change);
+    rows.sort((a, b) => b.qtyChange - a.qtyChange);
     return {
-      up: rows.filter((r) => r.change > 0).slice(0, 10),
-      down: rows.filter((r) => r.change < 0).sort((a, b) => a.change - b.change).slice(0, 10),
-      minAbs: MOVER_MIN_ABS
+      up: rows.filter((r) => r.qtyChange > 0).slice(0, 12),
+      down: rows.filter((r) => r.qtyChange < 0).sort((a, b) => a.qtyChange - b.qtyChange).slice(0, 12),
+      minQty: MOVER_MIN_QTY, minPct: MOVER_MIN_PCT, grouped: GROUPED_CATEGORY
     };
   }
 

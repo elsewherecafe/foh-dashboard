@@ -145,7 +145,7 @@ tr:last-child td{border-bottom:none}
 
   <div class="tablewrap">
     <h2>Movers</h2>
-    <div class="th2">Biggest changes vs the previous period, by dollars. Small swings are filtered out.</div>
+    <div class="th2">Biggest changes vs the previous period, by quantity sold \u2014 what the team can actually act on. Coffee &amp; Tea is grouped (a latte and a flat white are the same beans). Dollar change shown alongside.</div>
     <div id="moversTable"></div>
   </div>
 
@@ -325,20 +325,25 @@ function renderDow(cur){
 }
 function moverRows(list){
   return list.map(function(m){
-    var cls=m.change>=0?'up-v':'dn-v';
-    var arrow=m.change>=0?'\u25B2':'\u25BC';
+    var cls=m.qtyChange>=0?'up-v':'dn-v';
+    var arrow=m.qtyChange>=0?'\u25B2':'\u25BC';
     var pc=(m.isNew?'new':(m.pctChange!=null?(m.pctChange>0?'+':'')+m.pctChange.toFixed(0)+'%':'\u2014'));
-    return '<tr><td class="itemname">'+escapeHtml(m.name)+'</td><td class="muted">'+escapeHtml(m.category||'')+'</td>'
-      +'<td class="r muted">'+fmtMoney2(m.was)+'</td><td class="r">'+fmtMoney2(m.now)+'</td>'
-      +'<td class="r '+cls+'">'+arrow+' '+fmtMoney2(Math.abs(m.change))+'</td>'
-      +'<td class="r muted">'+pc+'</td></tr>';
+    var nm=escapeHtml(m.name)+(m.grouped?' <span class="muted" style="font-size:11px">grouped</span>':'');
+    var dcls=m.salesChange>=0?'up-v':'dn-v';
+    var darrow=m.salesChange>=0?'+':'\u2212';
+    return '<tr><td class="itemname">'+nm+'</td>'
+      +'<td class="r muted">'+fmtQty(m.qtyWas)+'</td>'
+      +'<td class="r">'+fmtQty(m.qtyNow)+'</td>'
+      +'<td class="r '+cls+'"><b>'+arrow+' '+fmtQty(Math.abs(m.qtyChange))+'</b></td>'
+      +'<td class="r muted">'+pc+'</td>'
+      +'<td class="r '+dcls+'">'+darrow+fmtMoney2(Math.abs(m.salesChange))+'</td></tr>';
   }).join('');
 }
 function renderMovers(mv,cur){
   var el=document.getElementById('moversTable');
   if(cur&&cur.rangeTooLong){ el.innerHTML='<div class="empty">Pick a range up to '+(cur.maxDays||100)+' days to see this.</div>'; return; }
-  if(!mv||((!mv.up||!mv.up.length)&&(!mv.down||!mv.down.length))){ el.innerHTML='<div class="empty">Nothing moved by more than $'+((mv&&mv.minAbs)||25)+' vs the previous period.</div>'; return; }
-  var head='<thead><tr><th>Item</th><th>Category</th><th class="r">Was</th><th class="r">Now</th><th class="r">Change</th><th class="r">%</th></tr></thead>';
+  if(!mv||((!mv.up||!mv.up.length)&&(!mv.down||!mv.down.length))){ el.innerHTML='<div class="empty">Nothing moved enough to flag vs the previous period.</div>'; return; }
+  var head='<thead><tr><th>Item</th><th class="r">Was</th><th class="r">Now</th><th class="r">Change (qty)</th><th class="r">%</th><th class="r">$ change</th></tr></thead>';
   var html='';
   if(mv.up&&mv.up.length) html+='<div class="movh">Moving up</div><table>'+head+'<tbody>'+moverRows(mv.up)+'</tbody></table>';
   if(mv.down&&mv.down.length) html+='<div class="movh">Moving down</div><table>'+head+'<tbody>'+moverRows(mv.down)+'</tbody></table>';
