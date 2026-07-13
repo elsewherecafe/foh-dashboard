@@ -76,6 +76,9 @@ tr:last-child td{border-bottom:none}
 .up-v{color:var(--c-green);font-weight:500}
 .dn-v{color:var(--c-coral);font-weight:500}
 .movh{font-family:'Khand',sans-serif;font-size:16px;font-weight:600;color:var(--ink);margin:0.9rem 0 0.4rem}
+.tgt{font-size:12px;margin-top:6px;color:var(--muted)}
+.tgt .ok{color:var(--c-green);font-weight:500}
+.tgt .off{color:var(--c-coral);font-weight:500}
 .dateinput{font-family:'DM Sans',sans-serif;font-size:13px;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--text)}
 .rangenote{background:var(--c-amber-bg);border:1px solid rgba(158,104,0,0.15);color:var(--c-amber);border-radius:8px;padding:0.6rem 0.8rem;font-size:12.5px;line-height:1.5;margin-top:0.4rem}
 </style>
@@ -161,7 +164,11 @@ var TZ='Australia/Melbourne';
 var ROLLOVER=0;
 var currentPeriod='this_month';
 var customFrom=null, customTo=null;
+/* Targets (owner-set). Cards flag when they fall on the wrong side. */
+var TARGETS={ avgSpend:40.00, cogsPct:20, wagesPct:60 };
 var customFrom=null, customTo=null;
+/* Targets (owner-set). Cards flag when they fall on the wrong side. */
+var TARGETS={ avgSpend:40.00, cogsPct:20, wagesPct:60 };
 
 function fmtMoney(n){ if(n===null||n===undefined) return '\u2014'; return '$'+Number(n).toLocaleString('en-AU',{minimumFractionDigits:0,maximumFractionDigits:0}); }
 function fmtMoney2(n){ if(n===null||n===undefined) return '\u2014'; return '$'+Number(n).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}); }
@@ -212,6 +219,14 @@ function cmpLine(label,cur,prev){
 }
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
 
+function tgtLine(actual,target,dir,isMoney){
+  /* dir: 'above' = we want actual >= target (avg spend); 'below' = want actual <= target (costs) */
+  if(actual===null||actual===undefined) return '';
+  var good=(dir==='above')?(actual>=target):(actual<=target);
+  var t=isMoney?fmtMoney2(target):target+'%';
+  var word=good?'on track':(dir==='above'?'below target':'over target');
+  return '<div class="tgt">Target '+t+' \u00b7 <span class="'+(good?'ok':'off')+'">'+word+'</span></div>';
+}
 function longMsg(cur){
   var d=(cur&&cur.maxDays)?cur.maxDays:100;
   return '<div class="na">Range too long</div><div class="note">Square data is pulled sale by sale, so it works up to about '+d+' days. Pick a shorter range (a month or a quarter) to see this.</div>';
@@ -232,6 +247,7 @@ function renderAvg(cur,prev,yoy){
   if(!cur||cur.avgSpend===null||cur.avgSpend===undefined){ el.innerHTML='<div class="badge sq">From Square</div><div class="lab">Average Customer Spend</div><div class="na">Not configured</div>'; return; }
   el.innerHTML='<div class="badge sq">From Square &middot; indicative</div><div class="lab">Average Customer Spend</div>'
     +'<div class="val">'+fmtMoney2(cur.avgSpend)+'</div>'
+    +tgtLine(cur.avgSpend,TARGETS.avgSpend,'above',true)
     +cmpLine('vs prev period',cur.avgSpend,prev&&prev.avgSpend)
     +cmpLine('vs same last year',cur.avgSpend,yoy&&yoy.avgSpend)
     +'<div class="drives"><b>Spend per visit</b> (total sales &divide; transactions). Are upsells and prompts working?</div>';
@@ -252,6 +268,7 @@ function renderCogs(cur,prev,yoy){
   el.innerHTML='<div class="badge xe">From Xero &middot; ex&#8209;GST</div><div class="lab">FOH Cost of Goods</div>'
     +'<div style="display:flex;align-items:baseline;gap:14px"><div class="pct">'+pct(cur.cogsPct)+'</div><div class="val" style="font-size:30px">'+fmtMoney(cur.cogs)+'</div></div>'
     +'<div class="pctd">of FOH sales</div>'
+    +tgtLine(cur.cogsPct,TARGETS.cogsPct,'below',false)
     +cmpLine('vs prev period',cur.cogs,prev&&prev.cogs)
     +cmpLine('vs same last year',cur.cogs,yoy&&yoy.cogs)
     +'<div class="drives"><b>Front of House stock:</b> beverage, retail and FOH consumables. Rising as a share of sales? Check pricing and waste.</div>';
@@ -262,6 +279,7 @@ function renderWages(cur,prev,yoy){
   el.innerHTML='<div class="badge xe">From Xero &middot; ex&#8209;GST</div><div class="lab">FOH Wages &amp; Salaries</div>'
     +'<div style="display:flex;align-items:baseline;gap:14px"><div class="pct">'+pct(cur.wagesPct)+'</div><div class="val" style="font-size:30px">'+fmtMoney(cur.wages)+'</div></div>'
     +'<div class="pctd">of FOH sales</div>'
+    +tgtLine(cur.wagesPct,TARGETS.wagesPct,'below',false)
     +cmpLine('vs prev period',cur.wages,prev&&prev.wages)
     +cmpLine('vs same last year',cur.wages,yoy&&yoy.wages)
     +'<div class="drives"><b>FOH labour</b> (wages + super), tagged Front of House in Xero. Rostered to trade? Trim hours or lift sales per shift.</div>';
@@ -285,16 +303,18 @@ function renderDow(cur){
   var el=document.getElementById('dowTable');
   if(cur&&cur.rangeTooLong){ el.innerHTML='<div class="empty">Pick a range up to '+(cur.maxDays||100)+' days to see this.</div>'; return; }
   if(!cur||!cur.daysOfWeek||!cur.daysOfWeek.length){ el.innerHTML='<div class="empty">No data for this period yet.</div>'; return; }
-  var max=0; cur.daysOfWeek.forEach(function(d){ if(d.avgSales>max) max=d.avgSales; });
+  var max=0; cur.daysOfWeek.forEach(function(d){ if(d.totalSales>max) max=d.totalSales; });
   var rows=cur.daysOfWeek.map(function(d){
-    var w=(max>0&&d.avgSales)?Math.round(d.avgSales/max*100):0;
+    var w=(max>0&&d.totalSales)?Math.round(d.totalSales/max*100):0;
     return '<tr><td class="itemname">'+escapeHtml(d.label)+'<div class="bar"><span style="width:'+w+'%"></span></div></td>'
       +'<td class="r muted">'+fmtQty(d.occurrences)+'</td>'
       +'<td class="r">'+fmtQty(d.txns)+'</td>'
+      +'<td class="r muted">'+(d.avgTxns!=null?fmtQty(d.avgTxns):'\u2014')+'</td>'
       +'<td class="r">'+(d.avgSpend!=null?fmtMoney2(d.avgSpend):'\u2014')+'</td>'
-      +'<td class="r">'+(d.avgSales!=null?fmtMoney2(d.avgSales):'\u2014')+'</td></tr>';
+      +'<td class="r">'+(d.avgSales!=null?fmtMoney2(d.avgSales):'\u2014')+'</td>'
+      +'<td class="r"><b>'+(d.totalSales!=null?fmtMoney2(d.totalSales):'\u2014')+'</b></td></tr>';
   }).join('');
-  el.innerHTML='<table><thead><tr><th>Day</th><th class="r">Times</th><th class="r">Txns</th><th class="r">Avg spend</th><th class="r">Avg sales/day</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  el.innerHTML='<table><thead><tr><th>Day</th><th class="r">Times</th><th class="r">Txns</th><th class="r">Txns/day</th><th class="r">Avg spend</th><th class="r">Avg sales/day</th><th class="r">Total sales</th></tr></thead><tbody>'+rows+'</tbody></table>';
 }
 function moverRows(list){
   return list.map(function(m){

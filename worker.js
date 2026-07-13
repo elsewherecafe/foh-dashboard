@@ -480,15 +480,11 @@ const ADAPTERS = {
         share: totalNetSales > 0 ? Math.round((dp[d.key].sales / totalNetSales) * 1000) / 10 : null,
         avgSpend: dp[d.key].txns > 0 ? r2(dp[d.key].sales / dp[d.key].txns) : null
       }));
-      if (dp.outside.txns > 0) {
-        dayparts.push({ key: 'outside', label: 'Outside trading hours', sales: r2(dp.outside.sales), txns: dp.outside.txns,
-          share: totalNetSales > 0 ? Math.round((dp.outside.sales / totalNetSales) * 1000) / 10 : null,
-          avgSpend: r2(dp.outside.sales / dp.outside.txns) });
-      }
       const daysOfWeek = dow.map((d, i) => {
         const nDays = Object.keys(d.days).length;
-        return { label: DOW_LABELS[i], sales: r2(d.sales), txns: d.txns, occurrences: nDays,
+        return { label: DOW_LABELS[i], totalSales: r2(d.sales), txns: d.txns, occurrences: nDays,
           avgSales: nDays > 0 ? r2(d.sales / nDays) : null,
+          avgTxns: nDays > 0 ? Math.round(d.txns / nDays) : null,
           avgSpend: d.txns > 0 ? r2(d.sales / d.txns) : null };
       });
 
