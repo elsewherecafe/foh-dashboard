@@ -1409,11 +1409,17 @@ async function apiFoh(env, url) {
     const totalSales = (pos.totalNetSales != null) ? pos.totalNetSales : null; // Square, ALL categories (venue volume)
     const cogs = (acc.cogs != null) ? acc.cogs : null;                     // Xero, ex-GST
     const wages = (acc.wagesSuper != null) ? acc.wagesSuper : null;        // Xero, ex-GST
-    /* Cost percentages measured against FOH sales (non-Food) - owner-confirmed. */
+    /* Cost percentages measured against FOH sales (non-Food) - owner-confirmed.
+       Wage % against FOH sales is deliberate: it only improves if the team upsells
+       (second drinks, a slice to finish), so it drives the behaviour we want.
+       We ALSO expose wages against TOTAL sales as an untargeted honest reading,
+       because FOH staff serve the whole venue, not just the drinks line. */
     const pct = (n) => (sales && sales !== 0 && n != null) ? Math.round((n / sales) * 1000) / 10 : null;
+    const pctTotal = (n) => (totalSales && totalSales !== 0 && n != null) ? Math.round((n / totalSales) * 1000) / 10 : null;
     return {
       sales, totalSales, cogs, wages,
       cogsPct: pct(cogs), wagesPct: pct(wages),
+      wagesPctTotal: pctTotal(wages),   /* context only - no target */
       txnCount: (pos.txnCount != null) ? pos.txnCount : null,
       avgSpend: (pos.avgSpend != null) ? pos.avgSpend : null,
       dayparts: pos.dayparts || null,

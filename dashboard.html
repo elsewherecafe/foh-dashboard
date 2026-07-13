@@ -79,6 +79,8 @@ tr:last-child td{border-bottom:none}
 .tgt{font-size:12px;margin-top:6px;color:var(--muted)}
 .tgt .ok{color:var(--c-green);font-weight:500}
 .tgt .off{color:var(--c-coral);font-weight:500}
+.second{font-size:12px;color:var(--muted);margin-top:8px;padding-top:8px;border-top:1px solid rgba(13,13,13,0.06);line-height:1.5}
+.second b{color:var(--ink);font-weight:600}
 .dateinput{font-family:'DM Sans',sans-serif;font-size:13px;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--text)}
 .rangenote{background:var(--c-amber-bg);border:1px solid rgba(158,104,0,0.15);color:var(--c-amber);border-radius:8px;padding:0.6rem 0.8rem;font-size:12.5px;line-height:1.5;margin-top:0.4rem}
 </style>
@@ -282,7 +284,8 @@ function renderWages(cur,prev,yoy){
     +tgtLine(cur.wagesPct,TARGETS.wagesPct,'below',false)
     +cmpLine('vs prev period',cur.wages,prev&&prev.wages)
     +cmpLine('vs same last year',cur.wages,yoy&&yoy.wages)
-    +'<div class="drives"><b>FOH labour</b> (wages + super), tagged Front of House in Xero. Rostered to trade? Trim hours or lift sales per shift.</div>';
+    +(cur.wagesPctTotal!=null?'<div class="second"><b>'+cur.wagesPctTotal.toFixed(1)+'%</b> of total venue sales (food + drinks) \u00b7 no target. FOH staff serve the whole floor, so this is the honest read.</div>':'')
+    +'<div class="drives"><b>The lever:</b> measured against FOH sales on purpose \u2014 it only improves when we upsell. Second drinks, a slice to finish, coffee with the bill.</div>';
 }
 function renderDayparts(cur){
   var el=document.getElementById('daypartTable');
