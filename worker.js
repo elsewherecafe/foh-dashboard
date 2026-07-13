@@ -494,7 +494,8 @@ const ADAPTERS = {
     /* FOH POS pull: items, sales, transactions, avg spend, dayparts, day-of-week. */
     async fetchFoh(env, h, q) {
       const r = await this._itemSales(env, q.from, q.to, q.tz, q.rollover || 0);
-      return { items: r.items, fohNetSales: r.fohNetSales, txnCount: r.txnCount, avgSpend: r.avgSpend,
+      return { items: r.items, fohNetSales: r.fohNetSales, totalNetSales: r.totalNetSales,
+               txnCount: r.txnCount, avgSpend: r.avgSpend,
                dayparts: r.dayparts || null, daysOfWeek: r.daysOfWeek || null,
                rangeTooLong: !!r.rangeTooLong, maxDays: r.maxDays || null };
     },
@@ -617,13 +618,19 @@ function localHourDow(iso, tz) {
   return { hour, minute, dow, mins: hour * 60 + minute };
 }
 
-/* Elsewhere trades 8:00-15:30, seven days (kitchen to 14:30). Four blocks the
-   leaders can roster against. Owner-confirmed. */
+/* Elsewhere trades 8:00-15:30, seven days (kitchen to 14:30). Hourly blocks so the
+   rush is visible at the resolution you actually roster to. Owner-confirmed.
+   NOTE: these buckets count the WHOLE order (Food + non-Food), because this section
+   measures how busy the venue is, not just the FOH line. */
 const DAYPARTS = [
-  { key: 'early',   label: 'Early (8:00–10:00)',        from: 8 * 60,  to: 10 * 60 },
-  { key: 'midmorn', label: 'Mid-morning (10:00–12:00)', from: 10 * 60, to: 12 * 60 },
-  { key: 'lunch',   label: 'Lunch (12:00–14:00)',       from: 12 * 60, to: 14 * 60 },
-  { key: 'arvo',    label: 'Afternoon (14:00–15:30)',   from: 14 * 60, to: 15 * 60 + 30 }
+  { key: 'h08', label: '8:00 – 9:00',   from: 8 * 60,  to: 9 * 60 },
+  { key: 'h09', label: '9:00 – 10:00',  from: 9 * 60,  to: 10 * 60 },
+  { key: 'h10', label: '10:00 – 11:00', from: 10 * 60, to: 11 * 60 },
+  { key: 'h11', label: '11:00 – 12:00', from: 11 * 60, to: 12 * 60 },
+  { key: 'h12', label: '12:00 – 13:00', from: 12 * 60, to: 13 * 60 },
+  { key: 'h13', label: '13:00 – 14:00', from: 13 * 60, to: 14 * 60 },
+  { key: 'h14', label: '14:00 – 15:00', from: 14 * 60, to: 15 * 60 },
+  { key: 'h15', label: '15:00 – 15:30', from: 15 * 60, to: 15 * 60 + 30 }
 ];
 function daypartFor(mins) {
   for (const d of DAYPARTS) { if (mins >= d.from && mins < d.to) return d.key; }
@@ -1398,12 +1405,14 @@ async function apiFoh(env, url) {
     if (!slot) return null;
     const acc = slot.accounting || {};
     const pos = slot.pos || {};
-    const sales = (pos.fohNetSales != null) ? pos.fohNetSales : null;      // Square, indicative
+    const sales = (pos.fohNetSales != null) ? pos.fohNetSales : null;      // Square, non-Food (the FOH line)
+    const totalSales = (pos.totalNetSales != null) ? pos.totalNetSales : null; // Square, ALL categories (venue volume)
     const cogs = (acc.cogs != null) ? acc.cogs : null;                     // Xero, ex-GST
     const wages = (acc.wagesSuper != null) ? acc.wagesSuper : null;        // Xero, ex-GST
+    /* Cost percentages measured against FOH sales (non-Food) - owner-confirmed. */
     const pct = (n) => (sales && sales !== 0 && n != null) ? Math.round((n / sales) * 1000) / 10 : null;
     return {
-      sales, cogs, wages,
+      sales, totalSales, cogs, wages,
       cogsPct: pct(cogs), wagesPct: pct(wages),
       txnCount: (pos.txnCount != null) ? pos.txnCount : null,
       avgSpend: (pos.avgSpend != null) ? pos.avgSpend : null,

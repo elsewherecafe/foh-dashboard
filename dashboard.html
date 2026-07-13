@@ -131,7 +131,7 @@ tr:last-child td{border-bottom:none}
 
   <div class="tablewrap">
     <h2>When we trade</h2>
-    <div class="th2">Sales and transactions by time of day. Use it to roster to the rush.</div>
+    <div class="th2">Every hour we're open. All sales (food and drinks), so it shows how busy the venue actually is. Roster to the rush.</div>
     <div id="daypartTable"></div>
   </div>
 
@@ -297,7 +297,7 @@ function renderDayparts(cur){
       +'<td class="r">'+fmtMoney2(d.sales)+'</td>'
       +'<td class="r muted">'+(d.share!=null?d.share.toFixed(1)+'%':'\u2014')+'</td></tr>';
   }).join('');
-  el.innerHTML='<table><thead><tr><th>Daypart</th><th class="r">Txns</th><th class="r">Avg spend</th><th class="r">Sales</th><th class="r">Share</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  el.innerHTML='<table><thead><tr><th>Hour</th><th class="r">Txns</th><th class="r">Avg spend</th><th class="r">Sales</th><th class="r">Share</th></tr></thead><tbody>'+rows+'</tbody></table>';
 }
 function renderDow(cur){
   var el=document.getElementById('dowTable');
