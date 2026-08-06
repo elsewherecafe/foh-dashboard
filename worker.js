@@ -820,24 +820,34 @@ function pullCount(text, re) {
   return m ? parseInt(m[1], 10) : null;
 }
 /* Extract a bulleted section (Highlights / Lowlights / Areas For Improvement).
-   We grab lines between the heading and the next known heading. */
+   Real emails wrap each bullet across several lines, so we REASSEMBLE: a new
+   bullet begins at a "Bold Label:" (short leading phrase then a colon); every
+   following line without its own label is a continuation and gets joined on.
+   We grab the block between the heading and the next known heading. */
 function pullSection(text, heading, stopHeadings) {
   const lines = text.split(/\r?\n/);
-  let out = [], capturing = false;
-  const isStop = (l) => stopHeadings.some((h) => new RegExp(h, 'i').test(l));
-  for (const raw of lines) {
-    const l = raw.trim();
-    if (!capturing) {
-      if (new RegExp(heading, 'i').test(l)) { capturing = true; }
-      continue;
-    }
+  let capturing = false;
+  const isStop = (l) => stopHeadings.some((h) => new RegExp(h, 'i').test(l))
+    || /VISIT FEEDBACK STATS|OVERALL REVIEW STATS/i.test(l);
+  const raw = [];
+  for (const line of lines) {
+    const l = line.trim();
+    if (!capturing) { if (new RegExp(heading, 'i').test(l)) capturing = true; continue; }
     if (!l) continue;
     if (isStop(l)) break;
-    // stop if we hit the stats block
-    if (/VISIT FEEDBACK STATS|OVERALL REVIEW STATS/i.test(l)) break;
-    out.push(l.replace(/^[•\-\u2022\s]+/, '').trim());
+    raw.push(l.replace(/^[•\-\u2022]+\s*/, '').trim());
   }
-  return out.filter(Boolean);
+  // Reassemble: a bullet starts when a line begins with a short "Label:" prefix.
+  const isNewBullet = (l) => /^[A-Z][A-Za-z0-9''&/ -]{1,40}:\s/.test(l);
+  const out = [];
+  let cur = '';
+  for (const l of raw) {
+    if (isNewBullet(l)) { if (cur) out.push(cur.trim()); cur = l; }
+    else { cur += ' ' + l; }
+  }
+  if (cur) out.push(cur.trim());
+  // collapse any double spaces from joining
+  return out.map((x) => x.replace(/\s{2,}/g, ' ').trim()).filter(Boolean);
 }
 
 function parseSevenRoomsEmail(text) {
