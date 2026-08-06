@@ -85,9 +85,18 @@ tr:last-child td{border-bottom:none}
 .fbpaste summary{cursor:pointer;font-size:13px;color:var(--muted)}
 .fbpaste textarea{width:100%;min-height:120px;margin-top:0.6rem;padding:10px;border-radius:8px;border:1px solid var(--line);font-family:'DM Sans',sans-serif;font-size:12px;background:var(--card);color:var(--text);resize:vertical}
 .fbrow{display:flex;align-items:center;gap:10px;margin-top:0.6rem}
-.fbweek{border:1px solid var(--line);border-radius:12px;padding:1rem 1.1rem;margin-bottom:0.9rem;background:var(--card)}
-.fbweek .wk{font-family:'Khand',sans-serif;font-weight:600;font-size:16px;color:var(--ink)}
-.fbweek .wksub{font-size:12px;color:var(--muted);margin-bottom:0.7rem}
+.fbweek{border:1px solid var(--line);border-radius:12px;margin-bottom:0.6rem;background:var(--card);overflow:hidden}
+.fbweek summary{list-style:none;cursor:pointer;padding:0.75rem 1.1rem;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.fbweek summary::-webkit-details-marker{display:none}
+.fbweek summary::before{content:'\25B8';color:var(--muted);font-size:11px;transition:transform 0.15s}
+.fbweek[open] summary::before{transform:rotate(90deg)}
+.fbweek summary:hover{background:rgba(13,13,13,0.02)}
+.fbweek .wk{font-family:'Khand',sans-serif;font-weight:600;font-size:15px;color:var(--ink)}
+.fbchips{display:flex;flex-wrap:wrap;gap:6px;margin-left:auto}
+.fbchip{font-size:11px;padding:2px 8px;border-radius:999px;background:rgba(13,13,13,0.05);color:var(--text)}
+.fbchip b{color:var(--ink);font-weight:600}
+.fbchip.muted{color:var(--muted)}
+.fbdetail{padding:0 1.1rem 1.1rem}
 .fbstars{display:flex;flex-wrap:wrap;gap:14px;margin:0.4rem 0 0.6rem}
 .fbstat{min-width:78px}
 .fbstat .k{font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--muted)}
@@ -99,7 +108,7 @@ tr:last-child td{border-bottom:none}
 .fbcol ul{list-style:none;font-size:13px;line-height:1.5}
 .fbcol li{padding:3px 0;border-bottom:1px solid rgba(13,13,13,0.05)}
 .fbcol li b{font-weight:600;color:var(--ink)}
-.fbdel{font-size:11px;color:var(--c-coral);cursor:pointer;background:none;border:none;float:right}
+.fbdel{font-size:11px;color:var(--c-coral);cursor:pointer;background:none;border:none;margin-top:12px;padding:0}
 .fbplat{font-size:12px;color:var(--muted);margin-top:6px}
 .fbtrend{border:1px solid var(--line);border-radius:12px;padding:1rem 1.1rem;margin-bottom:1rem;background:var(--card)}
 .fbtrend h4{font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:var(--muted);margin-bottom:2px}
@@ -407,13 +416,27 @@ function ratingStat(label,r){
   if(!r) return '';
   return '<div class="fbstat"><div class="k">'+label+'</div><div class="v">'+r.score.toFixed(1)+'</div><div class="n">'+starStr(r.score)+' \u00b7 '+r.count+'</div></div>';
 }
-function fbWeekHtml(w){
+function fbWeekHtml(w, openFirst){
   var p=w.period;
   var d1=new Date(p.from+'T12:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'});
   var d2=new Date(p.to+'T12:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'});
   var v=w.visit||{};
+  var ov=(v.overall?v.overall.score.toFixed(1):'\u2014');
+  var rec=(v.recommendPct!=null?v.recommendPct+'%':'\u2014');
+  var fbN=(w.newFeedback!=null?w.newFeedback:'\u2014');
+  /* compact summary line shown when collapsed */
+  var summary='<span class="wk">'+d1+' \u2013 '+d2+'</span>'
+    +'<span class="fbchips">'
+    +'<span class="fbchip"><b>'+ov+'</b> overall</span>'
+    +(v.food?'<span class="fbchip">'+v.food.score.toFixed(1)+' food</span>':'')
+    +(v.service?'<span class="fbchip">'+v.service.score.toFixed(1)+' service</span>':'')
+    +'<span class="fbchip">'+rec+' rec</span>'
+    +'<span class="fbchip muted">'+fbN+' fb</span>'
+    +'</span>';
+  /* full detail shown when expanded */
+  function ratingStat(label,r){ if(!r) return ''; return '<div class="fbstat"><div class="k">'+label+'</div><div class="v">'+r.score.toFixed(1)+'</div><div class="n">'+starStr(r.score)+' \u00b7 '+r.count+'</div></div>'; }
   var stars=ratingStat('Overall',v.overall)+ratingStat('Food',v.food)+ratingStat('Drinks',v.drinks)+ratingStat('Service',v.service)+ratingStat('Ambience',v.ambience);
-  var rec=(v.recommendPct!=null)?'<div class="fbstat"><div class="k">Recommend</div><div class="v">'+v.recommendPct+'%</div><div class="n">&nbsp;</div></div>':'';
+  var recStat=(v.recommendPct!=null)?'<div class="fbstat"><div class="k">Recommend</div><div class="v">'+v.recommendPct+'%</div><div class="n">&nbsp;</div></div>':'';
   var plat='';
   if(w.platforms){
     var bits=[];
@@ -423,68 +446,20 @@ function fbWeekHtml(w){
   }
   function col(title,arr){
     if(!arr||!arr.length) return '';
-    var lis=arr.map(function(x){
-      var idx=x.indexOf(':');
-      if(idx>0&&idx<40) return '<li><b>'+escapeHtml(x.slice(0,idx))+':</b>'+escapeHtml(x.slice(idx+1))+'</li>';
-      return '<li>'+escapeHtml(x)+'</li>';
-    }).join('');
+    var lis=arr.map(function(x){var i=x.indexOf(':');return i>0&&i<40?'<li><b>'+escapeHtml(x.slice(0,i))+':</b>'+escapeHtml(x.slice(i+1))+'</li>':'<li>'+escapeHtml(x)+'</li>';}).join('');
     return '<div class="fbcol"><h4>'+title+'</h4><ul>'+lis+'</ul></div>';
   }
   var cols='<div class="fbcols">'+col('Highlights',w.highlights)+col('Lowlights',w.lowlights)+'</div>';
-  var improve=(w.improve&&w.improve.length)?'<div class="fbcol" style="margin-top:10px"><h4>Areas to improve</h4><ul>'+w.improve.map(function(x){var i=x.indexOf(':');return i>0&&i<40?'<li><b>'+escapeHtml(x.slice(0,i))+':</b>'+escapeHtml(x.slice(i+1))+'</li>':'<li>'+escapeHtml(x)+'</li>';}).join('')+'</ul></div>':'';
-  var fbCount=(w.newFeedback!=null?w.newFeedback+' feedback':'')+(w.newReviews!=null?(w.newFeedback!=null?' \u00b7 ':'')+w.newReviews+' reviews':'');
-  return '<div class="fbweek"><button class="fbdel" data-from="'+p.from+'">remove</button>'
-    +'<div class="wk">'+d1+' \u2013 '+d2+'</div><div class="wksub">'+fbCount+'</div>'
-    +'<div class="fbstars">'+stars+rec+'</div>'+plat+cols+improve+'</div>';
+  var improve=(w.improve&&w.improve.length)?col('Areas to improve',w.improve):'';
+  var detail='<div class="fbstars">'+stars+recStat+'</div>'+plat+cols
+    +(improve?'<div style="margin-top:10px">'+improve+'</div>':'')
+    +'<button class="fbdel" data-from="'+p.from+'">remove this week</button>';
+  return '<details class="fbweek"'+(openFirst?' open':'')+'><summary>'+summary+'</summary><div class="fbdetail">'+detail+'</div></details>';
 }
-function renderTrend(weeks){
-  var el=document.getElementById('feedbackTrend');
-  if(!weeks||weeks.length<2){ el.innerHTML=''; return; } /* need 2+ weeks to draw a line */
-  /* oldest -> newest for left-to-right time axis */
-  var data=weeks.slice().sort(function(a,b){ return a.period.from<b.period.from?-1:1; });
-  var series=[
-    { key:'overall', label:'Overall', color:'#1A7A3C' },
-    { key:'food',    label:'Food',    color:'#C04B28' },
-    { key:'service', label:'Service', color:'#9E6800' }
-  ];
-  var W=640,H=180,padL=32,padR=12,padT=14,padB=26;
-  var n=data.length;
-  var xFor=function(i){ return padL+(n===1?0:(i/(n-1))*(W-padL-padR)); };
-  /* rating axis fixed 3.5 - 5.0 so small moves are visible but honest */
-  var lo=3.5,hi=5.0;
-  var yFor=function(v){ return padT+(1-(v-lo)/(hi-lo))*(H-padT-padB); };
-  var svg='<svg viewBox="0 0 '+W+' '+H+'" width="100%" preserveAspectRatio="xMidYMid meet" style="font-family:DM Sans,sans-serif">';
-  /* gridlines at 4.0, 4.5, 5.0 */
-  [4.0,4.5,5.0].forEach(function(g){
-    var y=yFor(g);
-    svg+='<line x1="'+padL+'" y1="'+y+'" x2="'+(W-padR)+'" y2="'+y+'" stroke="rgba(13,13,13,0.08)" stroke-width="1"/>';
-    svg+='<text x="'+(padL-6)+'" y="'+(y+3)+'" text-anchor="end" font-size="10" fill="#8C8075">'+g.toFixed(1)+'</text>';
-  });
-  /* x labels: first, middle, last to avoid clutter */
-  function wkLabel(w){ return new Date(w.period.from+'T12:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'}); }
-  [0,Math.floor((n-1)/2),n-1].filter(function(v,i,a){return a.indexOf(v)===i;}).forEach(function(i){
-    svg+='<text x="'+xFor(i)+'" y="'+(H-8)+'" text-anchor="middle" font-size="10" fill="#8C8075">'+wkLabel(data[i])+'</text>';
-  });
-  series.forEach(function(ser){
-    var pts=[],dots='';
-    for(var i=0;i<n;i++){
-      var r=data[i].visit&&data[i].visit[ser.key];
-      if(!r) continue;
-      var x=xFor(i),y=yFor(Math.max(lo,Math.min(hi,r.score)));
-      pts.push(x+','+y);
-      dots+='<circle cx="'+x+'" cy="'+y+'" r="3" fill="'+ser.color+'"/>';
-    }
-    if(pts.length>1) svg+='<polyline points="'+pts.join(' ')+'" fill="none" stroke="'+ser.color+'" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
-    svg+=dots;
-  });
-  svg+='</svg>';
-  var legend='<div class="trendlegend">'+series.map(function(s){return '<span><i style="background:'+s.color+'"></i>'+s.label+'</span>';}).join('')+'</div>';
-  el.innerHTML='<div class="fbtrend"><h4>Satisfaction trend</h4><div class="sub">Star ratings across '+n+' weeks (scale 3.5\u20135.0).</div>'+svg+legend+'</div>';
-}
-function renderFeedback(weeks){
+function renderFeedback(weeks){function renderFeedback(weeks){
   var el=document.getElementById('feedbackBody');
   if(!weeks||!weeks.length){ el.innerHTML='<div class="empty">No feedback added yet. Paste a SevenRooms weekly email below to start \u2014 you can add past weeks too.</div>'; return; }
-  el.innerHTML=weeks.map(fbWeekHtml).join('');
+  el.innerHTML=weeks.map(function(w,i){return fbWeekHtml(w, i===0);}).join('');
   Array.prototype.forEach.call(el.querySelectorAll('.fbdel'),function(b){
     b.addEventListener('click',function(){
       if(!confirm('Remove this week from the feedback history?')) return;
