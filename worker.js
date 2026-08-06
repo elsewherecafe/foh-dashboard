@@ -767,6 +767,151 @@ function mapProfitAndLoss(rep) {
 }
 
 /* ============================================================================
+   SevenRooms weekly feedback email parser + storage.
+   The owner pastes the weekly "Guest Satisfaction Summary" email text; we extract
+   the period, the visit-feedback star ratings, recommend %, review stats, per-
+   platform review scores, and the highlights/lowlights prose. Each week is stored
+   in KV under fb:<startISO> so pasting past emails backfills history. Robust to
+   minor layout drift: we match on labels, not fixed positions.
+============================================================================ */
+
+/* Parse "July 27 to August 3, 2026" (and "July 27 - August 3, 2026") -> ISO dates. */
+function parseFeedbackPeriod(text) {
+  const MONTHS = { january:0,february:1,march:2,april:3,may:4,june:5,july:6,august:7,september:8,october:9,november:10,december:11 };
+  // Look for "<Month> <day> (to|-|–|—) <Month?> <day>, <year>"
+  const re = /([A-Za-z]+)\s+(\d{1,2})\s*(?:to|-|–|—)\s*(?:([A-Za-z]+)\s+)?(\d{1,2}),?\s*(\d{4})/i;
+  const m = text.match(re);
+  if (!m) return null;
+  const m1 = MONTHS[m[1].toLowerCase()];
+  const d1 = parseInt(m[2], 10);
+  const m2 = m[3] ? MONTHS[m[3].toLowerCase()] : m1;
+  const d2 = parseInt(m[4], 10);
+  const year = parseInt(m[5], 10);
+  if (m1 == null || m2 == null) return null;
+  const iso = (y, mo, d) => y + '-' + String(mo + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+  // handle year rollover (Dec -> Jan): if end month < start month, end is next year
+  const endYear = (m2 < m1) ? year : year;
+  return { from: iso(year, m1, d1), to: iso(endYear, m2, d2), label: m[0] };
+}
+
+/* Pull the first star rating that follows a label, e.g.
+   "Food (12)  ★★★★★ 4.7" -> { count:12, score:4.7 }. Tolerant of the star glyphs. */
+function pullRating(text, label) {
+  // label optionally followed by "(N)", then stars, then a decimal score
+  const re = new RegExp(label + '\\s*\\((\\d+)\\)\\s*[^0-9]*?(\\d(?:\\.\\d)?)', 'i');
+  const m = text.match(re);
+  if (!m) return null;
+  return { count: parseInt(m[1], 10), score: parseFloat(m[2]) };
+}
+/* Pull a percentage after a label, e.g. "Recommend % (17) 100%". */
+function pullPct(text, label) {
+  const re = new RegExp(label + '[^0-9]*(\\d{1,3})\\s*%', 'i');
+  const m = text.match(re);
+  return m ? parseInt(m[1], 10) : null;
+}
+/* Recommend % specifically: "Recommend % (17) 100%" - skip the count, take the %. */
+function pullRecommend(text) {
+  const m = text.match(/Recommend\s*%\s*\(\d+\)\s*(\d{1,3})\s*%/i);
+  return m ? parseInt(m[1], 10) : null;
+}
+/* Pull a labelled count like "17 new feedback". */
+function pullCount(text, re) {
+  const m = text.match(re);
+  return m ? parseInt(m[1], 10) : null;
+}
+/* Extract a bulleted section (Highlights / Lowlights / Areas For Improvement).
+   We grab lines between the heading and the next known heading. */
+function pullSection(text, heading, stopHeadings) {
+  const lines = text.split(/\r?\n/);
+  let out = [], capturing = false;
+  const isStop = (l) => stopHeadings.some((h) => new RegExp(h, 'i').test(l));
+  for (const raw of lines) {
+    const l = raw.trim();
+    if (!capturing) {
+      if (new RegExp(heading, 'i').test(l)) { capturing = true; }
+      continue;
+    }
+    if (!l) continue;
+    if (isStop(l)) break;
+    // stop if we hit the stats block
+    if (/VISIT FEEDBACK STATS|OVERALL REVIEW STATS/i.test(l)) break;
+    out.push(l.replace(/^[•\-\u2022\s]+/, '').trim());
+  }
+  return out.filter(Boolean);
+}
+
+function parseSevenRoomsEmail(text) {
+  if (!text || !/sevenrooms/i.test(text) && !/guest satisfaction/i.test(text)) {
+    throw new Error('This does not look like a SevenRooms guest satisfaction email.');
+  }
+  const period = parseFeedbackPeriod(text);
+  if (!period) throw new Error('Could not find the date range in the email (e.g. "July 27 to August 3, 2026").');
+
+  const visit = {
+    overall:  pullRating(text, 'Overall'),
+    food:     pullRating(text, 'Food'),
+    drinks:   pullRating(text, 'Drinks'),
+    service:  pullRating(text, 'Service'),
+    ambience: pullRating(text, 'Ambience') || pullRating(text, 'Ambiance'),
+    recommendPct: pullRecommend(text)
+  };
+  // Review stats (second "Overall (N) score" after the visit block) + platforms
+  const platforms = {
+    google:      pullRating(text, 'Google'),
+    facebook:    pullPct(text, 'Facebook'),
+    tripadvisor: pullRating(text, 'TripAdvisor')
+  };
+  const newFeedback = pullCount(text, /(\d+)\s+new feedback/i);
+  const newReviews  = pullCount(text, /(\d+)\s+new reviews?/i);
+
+  const highlights = pullSection(text, 'Guest Highlights', ['Guest Lowlights', 'Areas For Improvement', 'VISIT FEEDBACK']);
+  const lowlights  = pullSection(text, 'Guest Lowlights', ['Areas For Improvement', 'VISIT FEEDBACK']);
+  const improve    = pullSection(text, 'Areas For Improvement', ['VISIT FEEDBACK STATS', 'OVERALL REVIEW']);
+
+  return {
+    period, visit, platforms, newFeedback, newReviews,
+    highlights, lowlights, improve,
+    pastedAt: new Date().toISOString()
+  };
+}
+
+async function apiFeedbackIngest(env, request) {
+  let body;
+  try { body = await request.json(); } catch (e) { return json({ ok: false, error: 'Send the email text as JSON {text:"..."}.' }, 400); }
+  const text = (body && body.text) || '';
+  if (!text.trim()) return json({ ok: false, error: 'Paste the SevenRooms email text first.' }, 400);
+  let parsed;
+  try { parsed = parseSevenRoomsEmail(text); }
+  catch (e) { return json({ ok: false, error: e.message }, 422); }
+  const key = 'fb:' + parsed.period.from;
+  await env.TOKENS.put(key, JSON.stringify(parsed));
+  return json({ ok: true, stored: parsed.period, overall: parsed.visit.overall });
+}
+
+async function apiFeedbackList(env) {
+  const out = [];
+  let cursor = undefined;
+  do {
+    const res = await env.TOKENS.list({ prefix: 'fb:', cursor });
+    for (const k of res.keys) {
+      const v = await env.TOKENS.get(k.name);
+      if (v) { try { out.push(JSON.parse(v)); } catch (e) {} }
+    }
+    cursor = res.list_complete ? undefined : res.cursor;
+  } while (cursor);
+  out.sort((a, b) => (a.period.from < b.period.from ? 1 : -1)); // newest first
+  return json({ ok: true, weeks: out });
+}
+
+async function apiFeedbackDelete(env, request) {
+  let body; try { body = await request.json(); } catch (e) { body = {}; }
+  const from = body && body.from;
+  if (!from) return json({ ok: false, error: 'which week?' }, 400);
+  await env.TOKENS.delete('fb:' + from);
+  return json({ ok: true, deleted: from });
+}
+
+/* ============================================================================
    Everything below is the shell. You should rarely need to edit it.
 ============================================================================ */
 
@@ -1584,6 +1729,18 @@ export default {
       if (!loggedIn) return json({ error: 'auth' }, 401);
       await env.TOKENS.delete('square:catalogmap:v1');
       return json({ ok: true, message: 'Catalog map cleared; it rebuilds on next load.' });
+    }
+    if (path === '/api/feedback' && request.method === 'GET') {
+      if (!loggedIn) return json({ error: 'auth' }, 401);
+      return apiFeedbackList(env);
+    }
+    if (path === '/api/feedback' && request.method === 'POST') {
+      if (!loggedIn) return json({ error: 'auth' }, 401);
+      return apiFeedbackIngest(env, request);
+    }
+    if (path === '/api/feedback/delete' && request.method === 'POST') {
+      if (!loggedIn) return json({ error: 'auth' }, 401);
+      return apiFeedbackDelete(env, request);
     }
     if (path === '/api/oautherror' && request.method === 'GET') {
       if (!loggedIn) return json({ error: 'auth' }, 401);

@@ -81,6 +81,26 @@ tr:last-child td{border-bottom:none}
 .tgt .off{color:var(--c-coral);font-weight:500}
 .second{font-size:12px;color:var(--muted);margin-top:8px;padding-top:8px;border-top:1px solid rgba(13,13,13,0.06);line-height:1.5}
 .second b{color:var(--ink);font-weight:600}
+.fbpaste{margin-top:1rem;border-top:1px solid var(--line);padding-top:0.8rem}
+.fbpaste summary{cursor:pointer;font-size:13px;color:var(--muted)}
+.fbpaste textarea{width:100%;min-height:120px;margin-top:0.6rem;padding:10px;border-radius:8px;border:1px solid var(--line);font-family:'DM Sans',sans-serif;font-size:12px;background:var(--card);color:var(--text);resize:vertical}
+.fbrow{display:flex;align-items:center;gap:10px;margin-top:0.6rem}
+.fbweek{border:1px solid var(--line);border-radius:12px;padding:1rem 1.1rem;margin-bottom:0.9rem;background:var(--card)}
+.fbweek .wk{font-family:'Khand',sans-serif;font-weight:600;font-size:16px;color:var(--ink)}
+.fbweek .wksub{font-size:12px;color:var(--muted);margin-bottom:0.7rem}
+.fbstars{display:flex;flex-wrap:wrap;gap:14px;margin:0.4rem 0 0.6rem}
+.fbstat{min-width:78px}
+.fbstat .k{font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--muted)}
+.fbstat .v{font-family:'Khand',sans-serif;font-weight:700;font-size:24px;color:var(--ink);line-height:1}
+.fbstat .n{font-size:11px;color:var(--muted)}
+.fbcols{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:0.5rem}
+@media(max-width:640px){.fbcols{grid-template-columns:1fr}}
+.fbcol h4{font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:var(--muted);margin-bottom:5px}
+.fbcol ul{list-style:none;font-size:13px;line-height:1.5}
+.fbcol li{padding:3px 0;border-bottom:1px solid rgba(13,13,13,0.05)}
+.fbcol li b{font-weight:600;color:var(--ink)}
+.fbdel{font-size:11px;color:var(--c-coral);cursor:pointer;background:none;border:none;float:right}
+.fbplat{font-size:12px;color:var(--muted);margin-top:6px}
 .dateinput{font-family:'DM Sans',sans-serif;font-size:13px;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--text)}
 .rangenote{background:var(--c-amber-bg);border:1px solid rgba(158,104,0,0.15);color:var(--c-amber);border-radius:8px;padding:0.6rem 0.8rem;font-size:12.5px;line-height:1.5;margin-top:0.4rem}
 </style>
@@ -147,6 +167,16 @@ tr:last-child td{border-bottom:none}
     <h2>Movers</h2>
     <div class="th2">Biggest changes vs the previous period, by quantity sold \u2014 what the team can actually act on. Coffee &amp; Tea is grouped (a latte and a flat white are the same beans). Dollar change shown alongside.</div>
     <div id="moversTable"></div>
+  </div>
+
+  <div class="tablewrap" id="feedbackWrap">
+    <h2>Guest feedback</h2>
+    <div class="th2">From SevenRooms. Paste the weekly summary email below to add a week &mdash; past weeks welcome, they build the trend.</div>
+    <div id="feedbackBody"></div>
+    <details class="fbpaste"><summary>Paste a weekly email</summary>
+      <textarea id="fbText" placeholder="Paste the full SevenRooms &lsquo;Weekly AI Guest Satisfaction Summary&rsquo; email here&hellip;"></textarea>
+      <div class="fbrow"><button class="rbtn" id="fbAdd">Add this week</button><span id="fbMsg" class="chint"></span></div>
+    </details>
   </div>
 
   <div class="tablewrap">
@@ -360,6 +390,64 @@ function renderItems(cur){
   el.innerHTML='<table><thead><tr><th>Item</th><th>Category</th><th class="r">Qty sold</th><th class="r">Sales (Square)</th></tr></thead><tbody>'+rows+'</tbody></table>';
 }
 
+function starStr(score){
+  if(score==null) return '';
+  var full=Math.round(score);
+  var s=''; for(var i=0;i<5;i++) s+= (i<full?'\u2605':'\u2606');
+  return s;
+}
+function ratingStat(label,r){
+  if(!r) return '';
+  return '<div class="fbstat"><div class="k">'+label+'</div><div class="v">'+r.score.toFixed(1)+'</div><div class="n">'+starStr(r.score)+' \u00b7 '+r.count+'</div></div>';
+}
+function fbWeekHtml(w){
+  var p=w.period;
+  var d1=new Date(p.from+'T12:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'});
+  var d2=new Date(p.to+'T12:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'});
+  var v=w.visit||{};
+  var stars=ratingStat('Overall',v.overall)+ratingStat('Food',v.food)+ratingStat('Drinks',v.drinks)+ratingStat('Service',v.service)+ratingStat('Ambience',v.ambience);
+  var rec=(v.recommendPct!=null)?'<div class="fbstat"><div class="k">Recommend</div><div class="v">'+v.recommendPct+'%</div><div class="n">&nbsp;</div></div>':'';
+  var plat='';
+  if(w.platforms){
+    var bits=[];
+    if(w.platforms.google) bits.push('Google '+w.platforms.google.score.toFixed(1)+' ('+w.platforms.google.count+')');
+    if(w.platforms.tripadvisor&&w.platforms.tripadvisor.count) bits.push('TripAdvisor '+w.platforms.tripadvisor.score.toFixed(1));
+    if(bits.length) plat='<div class="fbplat">Reviews: '+bits.join(' \u00b7 ')+'</div>';
+  }
+  function col(title,arr){
+    if(!arr||!arr.length) return '';
+    var lis=arr.map(function(x){
+      var idx=x.indexOf(':');
+      if(idx>0&&idx<40) return '<li><b>'+escapeHtml(x.slice(0,idx))+':</b>'+escapeHtml(x.slice(idx+1))+'</li>';
+      return '<li>'+escapeHtml(x)+'</li>';
+    }).join('');
+    return '<div class="fbcol"><h4>'+title+'</h4><ul>'+lis+'</ul></div>';
+  }
+  var cols='<div class="fbcols">'+col('Highlights',w.highlights)+col('Lowlights',w.lowlights)+'</div>';
+  var improve=(w.improve&&w.improve.length)?'<div class="fbcol" style="margin-top:10px"><h4>Areas to improve</h4><ul>'+w.improve.map(function(x){var i=x.indexOf(':');return i>0&&i<40?'<li><b>'+escapeHtml(x.slice(0,i))+':</b>'+escapeHtml(x.slice(i+1))+'</li>':'<li>'+escapeHtml(x)+'</li>';}).join('')+'</ul></div>':'';
+  var fbCount=(w.newFeedback!=null?w.newFeedback+' feedback':'')+(w.newReviews!=null?(w.newFeedback!=null?' \u00b7 ':'')+w.newReviews+' reviews':'');
+  return '<div class="fbweek"><button class="fbdel" data-from="'+p.from+'">remove</button>'
+    +'<div class="wk">'+d1+' \u2013 '+d2+'</div><div class="wksub">'+fbCount+'</div>'
+    +'<div class="fbstars">'+stars+rec+'</div>'+plat+cols+improve+'</div>';
+}
+function renderFeedback(weeks){
+  var el=document.getElementById('feedbackBody');
+  if(!weeks||!weeks.length){ el.innerHTML='<div class="empty">No feedback added yet. Paste a SevenRooms weekly email below to start \u2014 you can add past weeks too.</div>'; return; }
+  el.innerHTML=weeks.map(fbWeekHtml).join('');
+  Array.prototype.forEach.call(el.querySelectorAll('.fbdel'),function(b){
+    b.addEventListener('click',function(){
+      if(!confirm('Remove this week from the feedback history?')) return;
+      fetch('/api/feedback/delete',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({from:b.getAttribute('data-from')})})
+        .then(function(){ loadFeedback(); });
+    });
+  });
+}
+function loadFeedback(){
+  fetch('/api/feedback',{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){
+    if(d&&d.ok) renderFeedback(d.weeks);
+  }).catch(function(){});
+}
+
 function load(force){
   var r=computeRanges(currentPeriod);
   if(!r){ document.getElementById('freshText').textContent='Pick a From and To date, then hit Apply.'; return; }
@@ -391,6 +479,17 @@ document.getElementById('periods').addEventListener('click',function(e){
   load(false);
 });
 document.getElementById('refreshBtn').addEventListener('click',function(){ load(true); });
+document.getElementById('fbAdd').addEventListener('click',function(){
+  var t=document.getElementById('fbText').value; var msg=document.getElementById('fbMsg');
+  if(!t.trim()){ msg.textContent='Paste the email text first.'; return; }
+  msg.textContent='Adding\u2026';
+  fetch('/api/feedback',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:t})})
+    .then(function(r){return r.json();}).then(function(d){
+      if(d&&d.ok){ msg.textContent='Added '+d.stored.from+' \u2013 '+d.stored.to; document.getElementById('fbText').value=''; loadFeedback(); }
+      else { msg.textContent=(d&&d.error)||'Could not read that email.'; }
+    }).catch(function(){ msg.textContent='Something went wrong. Try again.'; });
+});
+loadFeedback();
 
 function updHint(){
   var f=document.getElementById('cFrom').value, t=document.getElementById('cTo').value;
