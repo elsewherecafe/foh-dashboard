@@ -456,6 +456,47 @@ function fbWeekHtml(w, openFirst){
     +'<button class="fbdel" data-from="'+p.from+'">remove this week</button>';
   return '<details class="fbweek"'+(openFirst?' open':'')+'><summary>'+summary+'</summary><div class="fbdetail">'+detail+'</div></details>';
 }
+function renderTrend(weeks){
+  var el=document.getElementById('feedbackTrend');
+  if(!el) return;
+  if(!weeks||weeks.length<2){ el.innerHTML=''; return; } /* need 2+ weeks to draw a line */
+  var data=weeks.slice().sort(function(a,b){ return a.period.from<b.period.from?-1:1; }); /* oldest -> newest */
+  var series=[
+    { key:'overall', label:'Overall', color:'#1A7A3C' },
+    { key:'food',    label:'Food',    color:'#C04B28' },
+    { key:'service', label:'Service', color:'#9E6800' }
+  ];
+  var W=640,H=180,padL=32,padR=12,padT=14,padB=26;
+  var n=data.length;
+  var xFor=function(i){ return padL+(n===1?0:(i/(n-1))*(W-padL-padR)); };
+  var lo=3.5,hi=5.0;
+  var yFor=function(v){ return padT+(1-(v-lo)/(hi-lo))*(H-padT-padB); };
+  var svg='<svg viewBox="0 0 '+W+' '+H+'" width="100%" preserveAspectRatio="xMidYMid meet" style="font-family:DM Sans,sans-serif">';
+  [4.0,4.5,5.0].forEach(function(g){
+    var y=yFor(g);
+    svg+='<line x1="'+padL+'" y1="'+y+'" x2="'+(W-padR)+'" y2="'+y+'" stroke="rgba(13,13,13,0.08)" stroke-width="1"/>';
+    svg+='<text x="'+(padL-6)+'" y="'+(y+3)+'" text-anchor="end" font-size="10" fill="#8C8075">'+g.toFixed(1)+'</text>';
+  });
+  function wkLabel(w){ return new Date(w.period.from+'T12:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'}); }
+  [0,Math.floor((n-1)/2),n-1].filter(function(v,i,a){return a.indexOf(v)===i;}).forEach(function(i){
+    svg+='<text x="'+xFor(i)+'" y="'+(H-8)+'" text-anchor="middle" font-size="10" fill="#8C8075">'+wkLabel(data[i])+'</text>';
+  });
+  series.forEach(function(ser){
+    var pts=[],dots='';
+    for(var i=0;i<n;i++){
+      var r=data[i].visit&&data[i].visit[ser.key];
+      if(!r) continue;
+      var x=xFor(i),y=yFor(Math.max(lo,Math.min(hi,r.score)));
+      pts.push(x+','+y);
+      dots+='<circle cx="'+x+'" cy="'+y+'" r="3" fill="'+ser.color+'"/>';
+    }
+    if(pts.length>1) svg+='<polyline points="'+pts.join(' ')+'" fill="none" stroke="'+ser.color+'" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
+    svg+=dots;
+  });
+  svg+='</svg>';
+  var legend='<div class="trendlegend">'+series.map(function(s){return '<span><i style="background:'+s.color+'"></i>'+s.label+'</span>';}).join('')+'</div>';
+  el.innerHTML='<div class="fbtrend"><h4>Satisfaction trend</h4><div class="sub">Star ratings across '+n+' weeks (scale 3.5\u20135.0).</div>'+svg+legend+'</div>';
+}
 function renderFeedback(weeks){
   var el=document.getElementById('feedbackBody');
   if(!weeks||!weeks.length){ el.innerHTML='<div class="empty">No feedback added yet. Paste a SevenRooms weekly email below to start \u2014 you can add past weeks too.</div>'; return; }
