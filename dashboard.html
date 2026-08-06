@@ -101,6 +101,12 @@ tr:last-child td{border-bottom:none}
 .fbcol li b{font-weight:600;color:var(--ink)}
 .fbdel{font-size:11px;color:var(--c-coral);cursor:pointer;background:none;border:none;float:right}
 .fbplat{font-size:12px;color:var(--muted);margin-top:6px}
+.fbtrend{border:1px solid var(--line);border-radius:12px;padding:1rem 1.1rem;margin-bottom:1rem;background:var(--card)}
+.fbtrend h4{font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:var(--muted);margin-bottom:2px}
+.fbtrend .sub{font-size:12px;color:var(--muted);margin-bottom:0.7rem}
+.trendlegend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;margin-top:8px}
+.trendlegend span{display:flex;align-items:center;gap:5px;color:var(--muted)}
+.trendlegend i{width:10px;height:10px;border-radius:2px;display:inline-block}
 .dateinput{font-family:'DM Sans',sans-serif;font-size:13px;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--text)}
 .rangenote{background:var(--c-amber-bg);border:1px solid rgba(158,104,0,0.15);color:var(--c-amber);border-radius:8px;padding:0.6rem 0.8rem;font-size:12.5px;line-height:1.5;margin-top:0.4rem}
 </style>
@@ -172,6 +178,7 @@ tr:last-child td{border-bottom:none}
   <div class="tablewrap" id="feedbackWrap">
     <h2>Guest feedback</h2>
     <div class="th2">From SevenRooms. Paste the weekly summary email below to add a week &mdash; past weeks welcome, they build the trend.</div>
+    <div id="feedbackTrend"></div>
     <div id="feedbackBody"></div>
     <details class="fbpaste"><summary>Paste a weekly email</summary>
       <textarea id="fbText" placeholder="Paste the full SevenRooms &lsquo;Weekly AI Guest Satisfaction Summary&rsquo; email here&hellip;"></textarea>
@@ -430,6 +437,50 @@ function fbWeekHtml(w){
     +'<div class="wk">'+d1+' \u2013 '+d2+'</div><div class="wksub">'+fbCount+'</div>'
     +'<div class="fbstars">'+stars+rec+'</div>'+plat+cols+improve+'</div>';
 }
+function renderTrend(weeks){
+  var el=document.getElementById('feedbackTrend');
+  if(!weeks||weeks.length<2){ el.innerHTML=''; return; } /* need 2+ weeks to draw a line */
+  /* oldest -> newest for left-to-right time axis */
+  var data=weeks.slice().sort(function(a,b){ return a.period.from<b.period.from?-1:1; });
+  var series=[
+    { key:'overall', label:'Overall', color:'#1A7A3C' },
+    { key:'food',    label:'Food',    color:'#C04B28' },
+    { key:'service', label:'Service', color:'#9E6800' }
+  ];
+  var W=640,H=180,padL=32,padR=12,padT=14,padB=26;
+  var n=data.length;
+  var xFor=function(i){ return padL+(n===1?0:(i/(n-1))*(W-padL-padR)); };
+  /* rating axis fixed 3.5 - 5.0 so small moves are visible but honest */
+  var lo=3.5,hi=5.0;
+  var yFor=function(v){ return padT+(1-(v-lo)/(hi-lo))*(H-padT-padB); };
+  var svg='<svg viewBox="0 0 '+W+' '+H+'" width="100%" preserveAspectRatio="xMidYMid meet" style="font-family:DM Sans,sans-serif">';
+  /* gridlines at 4.0, 4.5, 5.0 */
+  [4.0,4.5,5.0].forEach(function(g){
+    var y=yFor(g);
+    svg+='<line x1="'+padL+'" y1="'+y+'" x2="'+(W-padR)+'" y2="'+y+'" stroke="rgba(13,13,13,0.08)" stroke-width="1"/>';
+    svg+='<text x="'+(padL-6)+'" y="'+(y+3)+'" text-anchor="end" font-size="10" fill="#8C8075">'+g.toFixed(1)+'</text>';
+  });
+  /* x labels: first, middle, last to avoid clutter */
+  function wkLabel(w){ return new Date(w.period.from+'T12:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'}); }
+  [0,Math.floor((n-1)/2),n-1].filter(function(v,i,a){return a.indexOf(v)===i;}).forEach(function(i){
+    svg+='<text x="'+xFor(i)+'" y="'+(H-8)+'" text-anchor="middle" font-size="10" fill="#8C8075">'+wkLabel(data[i])+'</text>';
+  });
+  series.forEach(function(ser){
+    var pts=[],dots='';
+    for(var i=0;i<n;i++){
+      var r=data[i].visit&&data[i].visit[ser.key];
+      if(!r) continue;
+      var x=xFor(i),y=yFor(Math.max(lo,Math.min(hi,r.score)));
+      pts.push(x+','+y);
+      dots+='<circle cx="'+x+'" cy="'+y+'" r="3" fill="'+ser.color+'"/>';
+    }
+    if(pts.length>1) svg+='<polyline points="'+pts.join(' ')+'" fill="none" stroke="'+ser.color+'" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
+    svg+=dots;
+  });
+  svg+='</svg>';
+  var legend='<div class="trendlegend">'+series.map(function(s){return '<span><i style="background:'+s.color+'"></i>'+s.label+'</span>';}).join('')+'</div>';
+  el.innerHTML='<div class="fbtrend"><h4>Satisfaction trend</h4><div class="sub">Star ratings across '+n+' weeks (scale 3.5\u20135.0).</div>'+svg+legend+'</div>';
+}
 function renderFeedback(weeks){
   var el=document.getElementById('feedbackBody');
   if(!weeks||!weeks.length){ el.innerHTML='<div class="empty">No feedback added yet. Paste a SevenRooms weekly email below to start \u2014 you can add past weeks too.</div>'; return; }
@@ -444,7 +495,7 @@ function renderFeedback(weeks){
 }
 function loadFeedback(){
   fetch('/api/feedback',{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){
-    if(d&&d.ok) renderFeedback(d.weeks);
+    if(d&&d.ok){ renderTrend(d.weeks); renderFeedback(d.weeks); }
   }).catch(function(){});
 }
 
