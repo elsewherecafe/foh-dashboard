@@ -456,7 +456,7 @@ function fbWeekHtml(w, openFirst){
     +'<button class="fbdel" data-from="'+p.from+'">remove this week</button>';
   return '<details class="fbweek"'+(openFirst?' open':'')+'><summary>'+summary+'</summary><div class="fbdetail">'+detail+'</div></details>';
 }
-function renderFeedback(weeks){function renderFeedback(weeks){
+function renderFeedback(weeks){
   var el=document.getElementById('feedbackBody');
   if(!weeks||!weeks.length){ el.innerHTML='<div class="empty">No feedback added yet. Paste a SevenRooms weekly email below to start \u2014 you can add past weeks too.</div>'; return; }
   el.innerHTML=weeks.map(function(w,i){return fbWeekHtml(w, i===0);}).join('');

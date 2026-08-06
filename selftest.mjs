@@ -35,6 +35,16 @@ for (const f of REQUIRED) {
     else if (!/const ADAPTERS =/.test(text)) fail(f, 'ADAPTERS block missing');
     else { const err = workerSyntaxOk(text); if (err) fail(f, 'syntax error: ' + err); else ok(f, 'whole, parses, has adapters'); }
   } else if (f === 'dashboard.html') {
+    // Extract the inline <script> and syntax-check it: a broken script (e.g. a
+    // duplicated declaration) is invisible to tag checks but breaks the whole page.
+    const sm = text.match(/<script>([\s\S]*?)<\/script>/);
+    if (sm) {
+      const tmp = '.selftest.pagejs.mjs';
+      writeFileSync(tmp, sm[1].replace(/window\./g, 'globalThis.'));
+      try { execSync('node --check ' + tmp, { stdio: 'pipe' }); }
+      catch (e) { fail(f, 'page script syntax error: ' + (e.stderr || '' + e).toString().split('\n').slice(0,2).join(' ')); }
+      finally { try { unlinkSync(tmp); } catch (_) {} }
+    }
     if (!/EOF dashboard\.html/.test(text)) fail(f, 'missing EOF marker - likely truncated');
     else if (!/<\/html>/.test(trimmedEnd.slice(-200) + text.slice(-200))) fail(f, 'no closing </html>');
     else if (!/fetchData\(\)|load\(false\)|load\(\)/.test(text)) fail(f, 'main data call missing - likely truncated');
