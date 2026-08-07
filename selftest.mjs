@@ -48,7 +48,17 @@ for (const f of REQUIRED) {
     if (!/EOF dashboard\.html/.test(text)) fail(f, 'missing EOF marker - likely truncated');
     else if (!/<\/html>/.test(trimmedEnd.slice(-200) + text.slice(-200))) fail(f, 'no closing </html>');
     else if (!/fetchData\(\)|load\(false\)|load\(\)/.test(text)) fail(f, 'main data call missing - likely truncated');
-    else ok(f, 'whole, closing tags present');
+    // Every getElementById(...).addEventListener target must exist in the HTML,
+    // or the script throws at load and white-screens the whole page.
+    const htmlIds = new Set();
+    for (const m of text.matchAll(/id="([^"]+)"/g)) htmlIds.add(m[1]);
+    const scriptM = text.match(/<script>([\s\S]*?)<\/script>/);
+    if (scriptM) {
+      for (const m of scriptM[1].matchAll(/getElementById\('([^']+)'\)\.addEventListener/g)) {
+        if (!htmlIds.has(m[1])) fail(f, 'binds addEventListener to missing element #' + m[1] + ' (will white-screen the page)');
+      }
+    }
+    ok(f, 'whole, closing tags present, bindings resolve');
   } else if (f === 'wrangler.toml') {
     if (!/EOF wrangler\.toml/.test(text)) fail(f, 'missing EOF marker - likely truncated');
     else if (!/^name\s*=/m.test(text)) fail(f, 'no name field');
