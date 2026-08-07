@@ -157,12 +157,16 @@ tr:last-child td{border-bottom:none}
   <div class="grid" style="margin-bottom:1.25rem">
     <div class="card" id="cardTxn"></div>
     <div class="card" id="cardAvg"></div>
-    <div class="card" id="cardSales"></div>
+    <div class="card" id="cardTotalSales"></div>
   </div>
 
-  <div class="grid">
+  <div class="grid" style="margin-bottom:1.25rem">
+    <div class="card" id="cardSales"></div>
     <div class="card" id="cardCogs"></div>
     <div class="card" id="cardWages"></div>
+  </div>
+
+  <div class="grid" style="display:none">
     <div class="card" id="cardSpacer" style="background:transparent;border:none"></div>
   </div>
 
@@ -299,6 +303,16 @@ function renderAvg(cur,prev,yoy){
     +cmpLine('vs prev period',cur.avgSpend,prev&&prev.avgSpend)
     +cmpLine('vs same last year',cur.avgSpend,yoy&&yoy.avgSpend)
     +'<div class="drives"><b>Spend per visit</b> (total sales &divide; transactions). Are upsells and prompts working?</div>';
+}
+function renderTotalSales(cur,prev,yoy){
+  var el=document.getElementById('cardTotalSales');
+  if(cur&&cur.rangeTooLong){ el.innerHTML='<div class="badge sq">From Square</div><div class="lab">Total Venue Sales</div>'+longMsg(cur); return; }
+  if(!cur||cur.totalSales===null||cur.totalSales===undefined){ el.innerHTML='<div class="badge sq">From Square</div><div class="lab">Total Venue Sales</div><div class="na">Not configured</div>'; return; }
+  el.innerHTML='<div class="badge sq">From Square &middot; indicative</div><div class="lab">Total Venue Sales</div>'
+    +'<div class="val">'+fmtMoney(cur.totalSales)+'</div>'
+    +cmpLine('vs prev period',cur.totalSales,prev&&prev.totalSales)
+    +cmpLine('vs same last year',cur.totalSales,yoy&&yoy.totalSales)
+    +'<div class="drives"><b>Everything through the till</b> \u2014 food and drinks, all categories. Includes GST, so it reads higher than the Xero revenue figure.</div>';
 }
 function renderSales(cur,prev,yoy){
   var el=document.getElementById('cardSales');
@@ -519,7 +533,7 @@ function load(force){
     return res.json();
   }).then(function(d){
     if(!d) return;
-    renderTxn(d.cur,d.prev,d.yoy); renderAvg(d.cur,d.prev,d.yoy); renderSales(d.cur,d.prev,d.yoy); renderCogs(d.cur,d.prev,d.yoy); renderWages(d.cur,d.prev,d.yoy); renderItems(d.cur); renderDayparts(d.cur); renderDow(d.cur); renderMovers(d.movers,d.cur);
+    renderTxn(d.cur,d.prev,d.yoy); renderAvg(d.cur,d.prev,d.yoy); renderTotalSales(d.cur,d.prev,d.yoy); renderSales(d.cur,d.prev,d.yoy); renderCogs(d.cur,d.prev,d.yoy); renderWages(d.cur,d.prev,d.yoy); renderItems(d.cur); renderDayparts(d.cur); renderDow(d.cur); renderMovers(d.movers,d.cur);
     var t=d.generatedAt?new Date(d.generatedAt):new Date();
     document.getElementById('freshText').textContent='Updated '+t.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit'})+' \u00b7 updates when you open or refresh';
     var warn=[]; if(d.sources){ if(d.sources.accounting&&d.sources.accounting.error) warn.push('Xero: '+d.sources.accounting.error.plain); if(d.sources.pos&&d.sources.pos.error) warn.push('Square: '+d.sources.pos.error.plain); }
