@@ -457,9 +457,9 @@ const ADAPTERS = {
             const dslot = dow[lh.dow];
             if (dslot) {
               dslot.sales += orderNet; dslot.txns++;
-              /* count distinct calendar days per weekday so we can average */
-              const dayKey = new Date(when).toISOString().slice(0, 10);
-              dslot.days[dayKey] = true;
+              /* count distinct venue-local calendar days per weekday (NOT UTC,
+                 which mis-keyed Melbourne mornings to the previous day). */
+              dslot.days[lh.dateKey] = true;
             }
           }
         }
@@ -607,7 +607,9 @@ function sumFohCogs(rep) {
 function localHourDow(iso, tz) {
   const d = new Date(iso);
   const dtf = new Intl.DateTimeFormat('en-GB', {
-    timeZone: tz, hour12: false, weekday: 'short', hour: '2-digit', minute: '2-digit'
+    timeZone: tz, hour12: false, weekday: 'short',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit'
   });
   const parts = {};
   for (const p of dtf.formatToParts(d)) parts[p.type] = p.value;
@@ -615,7 +617,11 @@ function localHourDow(iso, tz) {
   const minute = parseInt(parts.minute, 10) || 0;
   const wkMap = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
   const dow = wkMap[parts.weekday] != null ? wkMap[parts.weekday] : 0;
-  return { hour, minute, dow, mins: hour * 60 + minute };
+  /* Local (venue-tz) calendar date, e.g. "2026-08-07". MUST be used for the
+     day-of-week occurrence count so a Melbourne Friday isn't mis-keyed to its
+     UTC (Thursday) date, which was collapsing distinct Fridays into one. */
+  const dateKey = parts.year + '-' + parts.month + '-' + parts.day;
+  return { hour, minute, dow, mins: hour * 60 + minute, dateKey };
 }
 
 /* Elsewhere trades 8:00-15:30, seven days (kitchen to 14:30). Hourly blocks so the
