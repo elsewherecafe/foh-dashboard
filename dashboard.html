@@ -527,19 +527,39 @@ function load(force){
   if(!r){ document.getElementById('freshText').textContent='Pick a From and To date, then hit Apply.'; return; }
   document.getElementById('rangeH').innerHTML=r.label+' <span>&middot; '+r.labelRange+'</span>';
   document.getElementById('freshText').innerHTML='<span class="spin"></span> Loading&hellip;';
-  var qs='cur='+r.cur[0]+':'+r.cur[1]+'&prev='+r.prev[0]+':'+r.prev[1]+'&yoy='+r.yoy[0]+':'+r.yoy[1]
+  var baseQs='cur='+r.cur[0]+':'+r.cur[1]+'&prev='+r.prev[0]+':'+r.prev[1]+'&yoy='+r.yoy[0]+':'+r.yoy[1]
     +'&tz='+encodeURIComponent(TZ)+'&rollover='+ROLLOVER+(force?'&refresh=1':'');
-  fetch('/api/foh?'+qs,{credentials:'same-origin'}).then(function(res){
+  var reqId=(load._id=(load._id||0)+1); /* guard against out-of-order responses when switching periods fast */
+
+  /* Phase 1: current period only - fast first paint. */
+  fetch('/api/foh?stage=cur&'+baseQs,{credentials:'same-origin'}).then(function(res){
     if(res.status===401){ location.reload(); return null; }
     return res.json();
   }).then(function(d){
-    if(!d) return;
-    renderTxn(d.cur,d.prev,d.yoy); renderAvg(d.cur,d.prev,d.yoy); renderTotalSales(d.cur,d.prev,d.yoy); renderSales(d.cur,d.prev,d.yoy); renderCogs(d.cur,d.prev,d.yoy); renderWages(d.cur,d.prev,d.yoy); renderItems(d.cur); renderDayparts(d.cur); renderDow(d.cur); renderMovers(d.movers,d.cur);
+    if(!d||reqId!==load._id) return;
+    renderTxn(d.cur,null,null); renderAvg(d.cur,null,null); renderTotalSales(d.cur,null,null);
+    renderSales(d.cur,null,null); renderCogs(d.cur,null,null); renderWages(d.cur,null,null);
+    renderItems(d.cur); renderDayparts(d.cur); renderDow(d.cur);
+    document.getElementById('moversTable').innerHTML='<div class="empty"><span class="spin"></span> Loading movers&hellip;</div>';
     var t=d.generatedAt?new Date(d.generatedAt):new Date();
-    document.getElementById('freshText').textContent='Updated '+t.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit'})+' \u00b7 updates when you open or refresh';
+    document.getElementById('freshText').innerHTML='Updated '+t.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit'})+' \u00b7 <span class="spin"></span> loading comparisons&hellip;';
     var warn=[]; if(d.sources){ if(d.sources.accounting&&d.sources.accounting.error) warn.push('Xero: '+d.sources.accounting.error.plain); if(d.sources.pos&&d.sources.pos.error) warn.push('Square: '+d.sources.pos.error.plain); }
     document.getElementById('syncNote').textContent=warn.length?(' \u00b7 '+warn.join(' \u00b7 ')):'';
-  }).catch(function(){ document.getElementById('freshText').textContent='Could not load. Tap Refresh to try again.'; });
+
+    /* Phase 2: full pull (comparisons + movers) fills in the vs-arrows and movers. */
+    fetch('/api/foh?stage=full&'+baseQs,{credentials:'same-origin'}).then(function(res){ return res.status===401?null:res.json(); }).then(function(f){
+      if(!f||reqId!==load._id) return;
+      renderTxn(f.cur,f.prev,f.yoy); renderAvg(f.cur,f.prev,f.yoy); renderTotalSales(f.cur,f.prev,f.yoy);
+      renderSales(f.cur,f.prev,f.yoy); renderCogs(f.cur,f.prev,f.yoy); renderWages(f.cur,f.prev,f.yoy);
+      renderMovers(f.movers,f.cur);
+      var t2=f.generatedAt?new Date(f.generatedAt):new Date();
+      document.getElementById('freshText').textContent='Updated '+t2.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit'})+' \u00b7 updates when you open or refresh';
+    }).catch(function(){
+      /* comparisons failed - the current-period view still stands; just drop the movers spinner */
+      document.getElementById('moversTable').innerHTML='<div class="empty">Comparisons couldn\u2019t load. Tap Refresh to retry.</div>';
+      document.getElementById('freshText').textContent='Updated \u00b7 comparisons unavailable';
+    });
+  }).catch(function(){ if(reqId===load._id) document.getElementById('freshText').textContent='Could not load. Tap Refresh to try again.'; });
 }
 
 document.getElementById('periods').addEventListener('click',function(e){

@@ -1518,7 +1518,10 @@ async function fetchFohSlot(env, q) {
   return out;
 }
 
-const FOH_CACHE_TTL = 120;
+const FOH_CACHE_TTL = 1200; /* 20 min. Team dashboard - numbers up to 20 min old
+                               is fine, and it means most loads hit cache instantly
+                               instead of re-walking every Square order. Force-fresh
+                               is always available via ?refresh=1 (the Refresh button). */
 
 async function apiFoh(env, url) {
   const cur = parseRange(url.searchParams.get('cur'));
@@ -1528,13 +1531,18 @@ async function apiFoh(env, url) {
   const tz = url.searchParams.get('tz') || 'Australia/Melbourne';
   const rollover = Math.max(0, Math.min(6, parseInt(url.searchParams.get('rollover') || '0', 10) || 0));
   const base = { tz, rollover };
+  /* stage=cur -> current period only (fast first paint). stage=full (default) ->
+     current + comparisons + movers. The page requests 'cur' first, shows it, then
+     requests 'full' to fill in the vs-arrows and movers. Each stage caches on its
+     own key so repeat loads are instant. */
+  const stage = url.searchParams.get('stage') === 'cur' ? 'cur' : 'full';
 
   const [sAcc, sPos] = await Promise.all([
     sourceStatus(env, 'accounting'),
     sourceStatus(env, 'pos')
   ]);
 
-  const cacheKey = 'fohcache:' + [
+  const cacheKey = 'fohcache:' + stage + ':' + [
     url.searchParams.get('cur') || '', url.searchParams.get('prev') || '',
     url.searchParams.get('yoy') || '', tz, rollover
   ].join('|');
@@ -1547,9 +1555,13 @@ async function apiFoh(env, url) {
   if (!data) {
     const periods = {};
     periods.cur = await fetchFohSlot(env, { ...base, ...cur });
-    periods.prev = prev ? await fetchFohSlot(env, { ...base, ...prev }) : null;
-    periods.yoy = yoy ? await fetchFohSlot(env, { ...base, ...yoy }) : null;
-    data = { generatedAt: new Date().toISOString(), periods };
+    if (stage === 'full') {
+      periods.prev = prev ? await fetchFohSlot(env, { ...base, ...prev }) : null;
+      periods.yoy = yoy ? await fetchFohSlot(env, { ...base, ...yoy }) : null;
+    } else {
+      periods.prev = null; periods.yoy = null;
+    }
+    data = { generatedAt: new Date().toISOString(), periods, stage };
     if (env.TOKENS) {
       try { await env.TOKENS.put(cacheKey, JSON.stringify(data), { expirationTtl: FOH_CACHE_TTL }); } catch (e) {}
     }
