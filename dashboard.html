@@ -137,8 +137,8 @@ tr:last-child td{border-bottom:none}
   <div class="periods" id="periods">
     <span class="plabel">Period</span>
     <button class="pchip" data-p="this_week">This week</button>
-    <button class="pchip" data-p="last_week">Last week</button>
-    <button class="pchip on" data-p="this_month">This month</button>
+    <button class="pchip on" data-p="last_week">Last week</button>
+    <button class="pchip" data-p="this_month">This month</button>
     <button class="pchip" data-p="last_month">Last month</button>
     <button class="pchip" data-p="custom">Custom&hellip;</button>
   </div>
@@ -215,7 +215,7 @@ tr:last-child td{border-bottom:none}
 <script>
 var TZ='Australia/Melbourne';
 var ROLLOVER=0;
-var currentPeriod='this_month';
+var currentPeriod='last_week';
 var customFrom=null, customTo=null;
 /* Targets (owner-set). Cards flag when they fall on the wrong side. */
 var TARGETS={ avgSpend:40.00, cogsPct:20, wagesPct:60 };
