@@ -76,6 +76,10 @@ tr:last-child td{border-bottom:none}
 .up-v{color:var(--c-green);font-weight:500}
 .dn-v{color:var(--c-coral);font-weight:500}
 .movh{font-family:'Khand',sans-serif;font-size:16px;font-weight:600;color:var(--ink);margin:0.9rem 0 0.4rem}
+.itemgroup{margin-bottom:1.1rem}
+.itemgrouphd{display:flex;justify-content:space-between;align-items:baseline;margin:0.9rem 0 0.3rem;padding-bottom:4px;border-bottom:2px solid var(--accent)}
+.itemgrouphd span:first-child{font-family:'Khand',sans-serif;font-size:16px;font-weight:600;color:var(--ink)}
+.itemgrouptot{font-size:12px;color:var(--muted)}
 .tgt{font-size:12px;margin-top:6px;color:var(--muted)}
 .tgt .ok{color:var(--c-green);font-weight:500}
 .tgt .off{color:var(--c-coral);font-weight:500}
@@ -414,11 +418,31 @@ function renderItems(cur){
   var el=document.getElementById('itemTable');
   if(cur&&cur.rangeTooLong){ el.innerHTML='<div class="empty">This range is too long for the item list. Square is read sale by sale, so pick a range up to about '+(cur.maxDays||100)+' days (a month or a quarter) to see the full drinks breakdown.</div>'; return; }
   if(!cur||!cur.items||!cur.items.length){ el.innerHTML='<div class="empty">No item sales returned for this period yet.</div>'; return; }
-  var rows=cur.items.map(function(it){
-    return '<tr><td class="itemname">'+escapeHtml(it.name)+'</td><td class="muted">'+escapeHtml(it.category||'')+'</td>'
-      +'<td class="r">'+fmtQty(it.qty)+'</td><td class="r">'+fmtMoney2(it.sales)+'</td></tr>';
-  }).join('');
-  el.innerHTML='<table><thead><tr><th>Item</th><th>Category</th><th class="r">Qty sold</th><th class="r">Sales (Square)</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  /* Group items by category. Each group sorted by sales; groups ordered by their
+     own total sales (biggest category first). */
+  var groups={};
+  cur.items.forEach(function(it){
+    var c=it.category||'Uncategorised';
+    if(!groups[c]) groups[c]={name:c,items:[],sales:0,qty:0};
+    groups[c].items.push(it); groups[c].sales+=it.sales||0; groups[c].qty+=it.qty||0;
+  });
+  var ordered=Object.keys(groups).map(function(k){return groups[k];})
+    .sort(function(a,b){return b.sales-a.sales;});
+  ordered.forEach(function(g){ g.items.sort(function(a,b){return b.sales-a.sales;}); });
+
+  var html='';
+  ordered.forEach(function(g){
+    var rows=g.items.map(function(it){
+      return '<tr><td class="itemname">'+escapeHtml(it.name)+'</td>'
+        +'<td class="r">'+fmtQty(it.qty)+'</td><td class="r">'+fmtMoney2(it.sales)+'</td></tr>';
+    }).join('');
+    html+='<div class="itemgroup">'
+      +'<div class="itemgrouphd"><span>'+escapeHtml(g.name)+'</span>'
+      +'<span class="itemgrouptot">'+fmtQty(g.qty)+' sold \u00b7 '+fmtMoney2(g.sales)+'</span></div>'
+      +'<table><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Sales (Square)</th></tr></thead>'
+      +'<tbody>'+rows+'</tbody></table></div>';
+  });
+  el.innerHTML=html;
 }
 
 function starStr(score){
