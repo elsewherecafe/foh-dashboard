@@ -441,7 +441,15 @@ const ADAPTERS = {
             totalNetSales += netCents / 100; /* ALL items, for average spend */
             orderNet += netCents / 100;
             if ((category || '').trim().toLowerCase() === this._FOOD_CATEGORY.toLowerCase()) continue; // FOH list skips kitchen
-            const name = li.name || (varId && map.varToItem[varId]) || '(custom item)';
+            const baseName = li.name || (varId && map.varToItem[varId]) || '(custom item)';
+            /* Square puts the chosen variation (Still/Sparkling, Small/Large) in
+               variation_name. Split each variation onto its own line so e.g.
+               Bottled Water shows its 3 variants separately. Square's default
+               variation is literally "Regular" - hide that so single-variant items
+               don't get a pointless "- Regular" suffix. */
+            const varName = (li.variation_name || '').trim();
+            const showVar = varName && !/^regular$/i.test(varName);
+            const name = showVar ? (baseName + ' \u2013 ' + varName) : baseName;
             const qty = parseFloat(li.quantity || '0') || 0;
             const key = name;
             if (!items[key]) items[key] = { name, category, qty: 0, netSales: 0 };
