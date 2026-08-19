@@ -473,7 +473,6 @@ function fbWeekHtml(w, openFirst){
     +'<span class="fbchip muted">'+fbN+' fb</span>'
     +'</span>';
   /* full detail shown when expanded */
-  function ratingStat(label,r){ if(!r) return ''; return '<div class="fbstat"><div class="k">'+label+'</div><div class="v">'+r.score.toFixed(1)+'</div><div class="n">'+starStr(r.score)+' \u00b7 '+r.count+'</div></div>'; }
   var stars=ratingStat('Overall',v.overall)+ratingStat('Food',v.food)+ratingStat('Drinks',v.drinks)+ratingStat('Service',v.service)+ratingStat('Ambience',v.ambience);
   var recStat=(v.recommendPct!=null)?'<div class="fbstat"><div class="k">Recommend</div><div class="v">'+v.recommendPct+'%</div><div class="n">&nbsp;</div></div>':'';
   var plat='';
